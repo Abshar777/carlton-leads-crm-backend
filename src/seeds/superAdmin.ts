@@ -9,23 +9,74 @@ import { CRM_MODULES } from "../types/index.js";
 const superAdminPermissions: PermissionsMap = Object.fromEntries(
   CRM_MODULES.map((mod) => [
     mod,
-    { view: true, create: true, edit: true, delete: true, approve: true, export: true },
-  ])
+    {
+      view: true,
+      create: true,
+      edit: true,
+      delete: true,
+      approve: true,
+      export: true,
+    },
+  ]),
 ) as PermissionsMap;
 
 // BDE role has limited permissions: can view/create/edit leads and view dashboard
 const bdePermissions: PermissionsMap = {
-  dashboard: { view: true, create: false, edit: false, delete: false, approve: false, export: false },
-  leads: { view: true, create: true, edit: true, delete: false, approve: false, export: false },
-  users: { view: false, create: false, edit: false, delete: false, approve: false, export: false },
-  roles: { view: false, create: false, edit: false, delete: false, approve: false, export: false },
-  reports: { view: false, create: false, edit: false, delete: false, approve: false, export: false },
-  settings: { view: false, create: false, edit: false, delete: false, approve: false, export: false },
+  dashboard: {
+    view: true,
+    create: false,
+    edit: false,
+    delete: false,
+    approve: false,
+    export: false,
+  },
+  leads: {
+    view: true,
+    create: true,
+    edit: true,
+    delete: false,
+    approve: false,
+    export: false,
+  },
+  users: {
+    view: false,
+    create: false,
+    edit: false,
+    delete: false,
+    approve: false,
+    export: false,
+  },
+  roles: {
+    view: false,
+    create: false,
+    edit: false,
+    delete: false,
+    approve: false,
+    export: false,
+  },
+  reports: {
+    view: false,
+    create: false,
+    edit: false,
+    delete: false,
+    approve: false,
+    export: false,
+  },
+  settings: {
+    view: false,
+    create: false,
+    edit: false,
+    delete: false,
+    approve: false,
+    export: false,
+  },
 };
 
 async function seed() {
   try {
-    await mongoose.connect(env.MONGODB_URI);
+    await mongoose.connect(env.MONGODB_URI, {
+      authSource: "admin",
+    });
     console.log("✅ Connected to MongoDB");
 
     // Create or update Super Admin role
@@ -46,7 +97,9 @@ async function seed() {
     }
 
     // Create Super Admin user
-    const existingUser = await User.findOne({ email: env.SUPER_ADMIN_EMAIL.toLowerCase() });
+    const existingUser = await User.findOne({
+      email: env.SUPER_ADMIN_EMAIL.toLowerCase(),
+    });
     if (!existingUser) {
       await User.create({
         name: env.SUPER_ADMIN_NAME,
@@ -58,7 +111,9 @@ async function seed() {
       });
       console.log(`✅ Super Admin user created: ${env.SUPER_ADMIN_EMAIL}`);
     } else {
-      console.log(`ℹ️  Super Admin user already exists: ${env.SUPER_ADMIN_EMAIL}`);
+      console.log(
+        `ℹ️  Super Admin user already exists: ${env.SUPER_ADMIN_EMAIL}`,
+      );
     }
 
     // Create or update BDE role
@@ -66,7 +121,8 @@ async function seed() {
     if (!bdeRole) {
       bdeRole = await Role.create({
         roleName: "BDE",
-        description: "Business Development Executive – manages and follows up on leads",
+        description:
+          "Business Development Executive – manages and follows up on leads",
         permissions: bdePermissions,
         isSystemRole: false,
       });
@@ -89,7 +145,9 @@ async function seed() {
         designation: "Business Development Executive",
         status: "active",
       });
-      console.log(`✅ Sample BDE user created: ${bdeSampleEmail} (password: BdeUser@123)`);
+      console.log(
+        `✅ Sample BDE user created: ${bdeSampleEmail} (password: BdeUser@123)`,
+      );
     } else {
       console.log(`ℹ️  Sample BDE user already exists: ${bdeSampleEmail}`);
     }
