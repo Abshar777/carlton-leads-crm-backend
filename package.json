@@ -18,7 +18,9 @@
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^8.4.1",
     "morgan": "^1.10.0",
-    "zod": "^3.23.8"
+    "multer": "^2.1.1",
+    "xlsx": "^0.18.5",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
@@ -26,6 +28,7 @@
     "@types/express": "^4.17.21",
     "@types/jsonwebtoken": "^9.0.6",
     "@types/morgan": "^1.9.9",
+    "@types/multer": "^2.1.0",
     "typescript": "^5.4.5"
   }
 }
