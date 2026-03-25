@@ -130,7 +130,7 @@ const leadSchema = new Schema<ILead>(
 leadSchema.index({ course: 1 });
 
 // Sparse unique index on email (allows multiple nulls)
-leadSchema.index({ email: 1 }, { unique: true, sparse: true });
+leadSchema.index({ email: 1 }, { sparse: true });
 leadSchema.index({ status: 1 });
 leadSchema.index({ assignedTo: 1 });
 leadSchema.index({ team: 1 });
