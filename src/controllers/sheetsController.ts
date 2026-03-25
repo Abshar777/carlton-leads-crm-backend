@@ -2,7 +2,10 @@ import type { Request, Response, NextFunction } from "express";
 import { z } from "zod";
 import { Lead } from "../models/Lead.js";
 import { User } from "../models/User.js";
+import { LeadService } from "../services/leadService.js";
 import { sendSuccess, sendError } from "../utils/response.js";
+
+const leadService = new LeadService();
 
 // ─── Validation Schema ────────────────────────────────────────────────────────
 // Mirrors exactly the 17 columns in the Google Sheet export from Facebook Lead Ads
@@ -147,14 +150,26 @@ export const syncSheetLead = async (
       ],
     });
 
+    // ── Auto-assign to least-loaded active team ────────────────────────────
+    let assignedTeam: string | null = null;
+    try {
+      const assignment = await leadService.autoAssignLeads([lead._id.toString()]);
+      if (assignment.assigned > 0 && assignment.results[0]) {
+        assignedTeam = assignment.results[0].assignedTo;
+      }
+    } catch {
+      // No active teams yet — lead stays unassigned, not a fatal error
+    }
+
     sendSuccess(
       res,
       "Lead created successfully",
       {
-        leadId:    lead._id.toString(),
-        duplicate: false,
-        name:      lead.name,
-        phone:     lead.phone,
+        leadId:       lead._id.toString(),
+        duplicate:    false,
+        name:         lead.name,
+        phone:        lead.phone,
+        assignedTeam: assignedTeam ?? "unassigned",
       },
       201,
     );
@@ -258,8 +273,23 @@ export const syncSheetLeadsBatch = async (
     const duplicate = results.filter((r) => r.status === "duplicate").length;
     const invalid   = results.filter((r) => r.status === "invalid").length;
 
+    // ── Auto-assign all newly created leads to teams in one pass ───────────
+    let assigned = 0;
+    const createdIds = results
+      .filter((r) => r.status === "created" && r.leadId)
+      .map((r) => r.leadId as string);
+
+    if (createdIds.length > 0) {
+      try {
+        const assignment = await leadService.autoAssignLeads(createdIds);
+        assigned = assignment.assigned;
+      } catch {
+        // No active teams — leads stay unassigned, not a fatal error
+      }
+    }
+
     sendSuccess(res, `Batch processed: ${created} created, ${duplicate} skipped (duplicate), ${invalid} invalid`, {
-      summary: { total: rows.length, created, duplicate, invalid },
+      summary: { total: rows.length, created, duplicate, invalid, assignedToTeam: assigned },
       results,
     }, 201);
   } catch (err) {
