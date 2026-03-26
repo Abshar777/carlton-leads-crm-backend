@@ -2,6 +2,7 @@ import mongoose from "mongoose";
 import { Team } from "../models/Team.js";
 import { Lead } from "../models/Lead.js";
 import { User } from "../models/User.js";
+import { TeamMessage } from "../models/TeamMessage.js";
 import { buildPagination } from "../utils/response.js";
 import type { TeamFilters, ITeam, IUser } from "../types/index.js";
 
@@ -496,6 +497,156 @@ export class TeamService {
       }),
     );
     return { updated: leads.length };
+  }
+
+  // ── Team updates feed (lead activities + team chat messages) ─────────────────
+  async getTeamUpdates(
+    teamId: string,
+    opts: {
+      page?:      number;
+      limit?:     number;
+      dateFrom?:  string;
+      dateTo?:    string;
+      memberId?:  string;
+      search?:    string;
+      action?:    string; // "all" | "notes" | "status" | "assignments" | "messages"
+    } = {},
+  ) {
+    const { page = 1, limit = 30, dateFrom, dateTo, memberId, search, action } = opts;
+    const teamObjectId = new mongoose.Types.ObjectId(teamId);
+    const skip = (page - 1) * limit;
+
+    const team = await Team.findById(teamId);
+    if (!team) throw Object.assign(new Error("Team not found"), { statusCode: 404 });
+
+    // ── Build post-union filter conditions ───────────────────────────────────
+    const conditions: Record<string, unknown>[] = [];
+
+    // Date range
+    if (dateFrom || dateTo) {
+      const cr: Record<string, Date> = {};
+      if (dateFrom) cr.$gte = new Date(dateFrom);
+      if (dateTo) {
+        const end = new Date(dateTo);
+        end.setHours(23, 59, 59, 999);
+        cr.$lte = end;
+      }
+      conditions.push({ createdAt: cr });
+    }
+
+    // Member filter — author for messages, performedBy for activities
+    if (memberId) {
+      const mid = new mongoose.Types.ObjectId(memberId);
+      conditions.push({ $or: [{ "author._id": mid }, { "performedBy._id": mid }] });
+    }
+
+    // Action / type filter
+    if (action && action !== "all") {
+      if (action === "messages") {
+        conditions.push({ type: "message" });
+      } else if (action === "notes") {
+        conditions.push({ action: { $in: ["note_added", "note_updated"] } });
+      } else if (action === "status") {
+        conditions.push({ action: "status_changed" });
+      } else if (action === "assignments") {
+        conditions.push({ action: { $in: ["lead_assigned", "team_assigned"] } });
+      } else if (action === "created") {
+        conditions.push({ action: "lead_created" });
+      }
+    }
+
+    // Full-text search — note content, lead name, message content, description
+    if (search) {
+      const re = { $regex: search, $options: "i" };
+      conditions.push({
+        $or: [
+          { content:              re },
+          { "changes.note.to":   re },
+          { leadName:            re },
+          { description:         re },
+        ],
+      });
+    }
+
+    const filterStage = conditions.length > 0 ? [{ $match: { $and: conditions } }] : [];
+
+    // ── Shared base pipeline ─────────────────────────────────────────────────
+    const basePipeline: object[] = [
+      { $match: { team: teamObjectId } },
+      {
+        $lookup: {
+          from: "users",
+          localField: "author",
+          foreignField: "_id",
+          as: "_authorArr",
+          pipeline: [{ $project: { name: 1, email: 1, designation: 1 } }],
+        },
+      },
+      {
+        $addFields: {
+          type:   "message",
+          author: { $arrayElemAt: ["$_authorArr", 0] },
+        },
+      },
+      { $project: { _authorArr: 0 } },
+      {
+        $unionWith: {
+          coll: "leads",
+          pipeline: [
+            { $match: { team: teamObjectId } },
+            { $unwind: "$activityLogs" },
+            {
+              $lookup: {
+                from: "users",
+                localField: "activityLogs.performedBy",
+                foreignField: "_id",
+                as: "_perf",
+                pipeline: [{ $project: { name: 1, email: 1, designation: 1 } }],
+              },
+            },
+            {
+              $addFields: {
+                "activityLogs.type":        "activity",
+                "activityLogs.leadId":      "$_id",
+                "activityLogs.leadName":    "$name",
+                "activityLogs.performedBy": { $arrayElemAt: ["$_perf", 0] },
+              },
+            },
+            { $replaceRoot: { newRoot: "$activityLogs" } },
+          ],
+        },
+      },
+      ...filterStage,
+    ];
+
+    // ── Count total (reuse same pipeline) ────────────────────────────────────
+    const countResult = await TeamMessage.aggregate([
+      ...basePipeline,
+      { $count: "total" },
+    ]);
+    const total = (countResult[0]?.total as number) ?? 0;
+
+    // ── Fetch page ───────────────────────────────────────────────────────────
+    const items = await TeamMessage.aggregate([
+      ...basePipeline,
+      { $sort: { createdAt: -1 } },
+      { $skip: skip },
+      { $limit: limit },
+    ]);
+
+    return { items, pagination: buildPagination(total, page, limit) };
+  }
+
+  // ── Post a team chat message ───────────────────────────────────────────────────
+  async postTeamMessage(teamId: string, authorId: string, content: string) {
+    const team = await Team.findById(teamId);
+    if (!team) throw Object.assign(new Error("Team not found"), { statusCode: 404 });
+
+    const msg = await TeamMessage.create({ team: teamId, author: authorId, content });
+    const populated = await TeamMessage.findById(msg._id)
+      .populate("author", "name email designation")
+      .lean();
+    return populated;
   }
 
   // ── Team activity logs (aggregated from all team leads) ───────────────────────

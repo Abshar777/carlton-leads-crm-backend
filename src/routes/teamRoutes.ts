@@ -12,10 +12,13 @@ import {
   assignLeadToMember,
   getTeamDashboard,
   getTeamLogs,
+  getTeamUpdates,
+  postTeamMessage,
   bulkAssignTeamLeadsToMember,
   bulkTransferTeamLeads,
   bulkUpdateTeamLeadsStatus,
 } from "../controllers/teamController.js";
+import { exportTeamPdf } from "../controllers/exportController.js";
 import { authenticate } from "../middleware/auth.js";
 import { checkPermission } from "../middleware/permissions.js";
 
@@ -45,5 +48,12 @@ router.patch("/:id/leads/:leadId/assign",  checkPermission("leads", "edit"), ass
 router.patch("/:id/leads/bulk/assign",   checkPermission("leads", "edit"), bulkAssignTeamLeadsToMember);
 router.patch("/:id/leads/bulk/transfer", checkPermission("leads", "edit"), bulkTransferTeamLeads);
 router.patch("/:id/leads/bulk/status",   checkPermission("leads", "edit"), bulkUpdateTeamLeadsStatus);
+
+// ── Updates feed & team chat ──────────────────────────────────────────────────
+router.get( "/:id/updates",  checkPermission("leads", "view"),   getTeamUpdates);
+router.post("/:id/messages", checkPermission("leads", "view"),   postTeamMessage);
+
+// ── Export ─────────────────────────────────────────────────────────────────────
+router.get("/:id/export-pdf", checkPermission("leads", "view"), exportTeamPdf);
 
 export default router;

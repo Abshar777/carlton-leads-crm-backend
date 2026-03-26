@@ -290,7 +290,7 @@ export class LeadService {
     } as never);
     console.log("passeddd 3 🔴");
 
-    addLog(lead as never, "note_added", "A note was added", authorId);
+    addLog(lead as never, "note_added", "A note was added", authorId, { note: { from: null, to: content } });
     console.log("passeddd 4 🔴");
 
     await lead.save();
@@ -322,7 +322,7 @@ export class LeadService {
     note.content = content;
     (note as unknown as { updatedAt: Date }).updatedAt = new Date();
 
-    addLog(lead as never, "note_updated", "A note was updated", performedById);
+    addLog(lead as never, "note_updated", "A note was updated", performedById, { note: { from: null, to: content } });
 
     await lead.save();
     return buildPopulatedQuery(leadId);

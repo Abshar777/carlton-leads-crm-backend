@@ -30,6 +30,17 @@ export const getUsers = async (req: AuthenticatedRequest, res: Response, next: N
   }
 };
 
+/** GET /users/profile — returns the currently logged-in user */
+export const getUserProfile = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const user = await userService.getUserById(req.user!.userId);
+    sendSuccess(res, "User retrieved successfully", user);
+  } catch (error) {
+    next(error);
+  }
+};
+
+/** GET /users/:id — returns any user by ID (requires users.view OR self-access) */
 export const getUserById = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
   try {
     const user = await userService.getUserById(req.params.id);

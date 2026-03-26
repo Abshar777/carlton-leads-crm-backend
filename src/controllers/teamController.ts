@@ -345,3 +345,39 @@ export async function getTeamLogs(
     next(err);
   }
 }
+
+export async function getTeamUpdates(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction,
+) {
+  try {
+    const page     = Math.max(1, parseInt((req.query.page  as string) ?? "1",  10));
+    const limit    = Math.min(50, Math.max(1, parseInt((req.query.limit as string) ?? "30", 10)));
+    const dateFrom = req.query.dateFrom as string | undefined;
+    const dateTo   = req.query.dateTo   as string | undefined;
+    const memberId = req.query.memberId as string | undefined;
+    const search   = req.query.search   as string | undefined;
+    const action   = req.query.action   as string | undefined;
+    const result = await teamService.getTeamUpdates(req.params.id, {
+      page, limit, dateFrom, dateTo, memberId, search, action,
+    });
+    sendSuccess(res, "Team updates fetched successfully", result.items, 200, result.pagination);
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function postTeamMessage(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction,
+) {
+  try {
+    const { content } = z.object({ content: z.string().min(1).max(1000) }).parse(req.body);
+    const msg = await teamService.postTeamMessage(req.params.id, req.user!.userId, content);
+    sendSuccess(res, "Message posted", msg, 201);
+  } catch (err) {
+    next(err);
+  }
+}
