@@ -21,6 +21,8 @@ export const CRM_MODULES = [
   "leads",
   "reports",
   "settings",
+  "teams",
+  "courses"
 ] as const;
 
 export type CrmModule = (typeof CRM_MODULES)[number];
@@ -97,6 +99,7 @@ export interface PaginationQuery {
   status?: string;
   role?: string;
   isSystemRole?: string;
+  team?: string;
 }
 
 // ─── Team ─────────────────────────────────────────────────────────────────────

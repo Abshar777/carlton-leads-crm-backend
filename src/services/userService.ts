@@ -1,5 +1,6 @@
 import { User } from "../models/User.js";
 import { Role } from "../models/Role.js";
+import { Team } from "../models/Team.js";
 import type { CreateUserInput, UpdateUserInput } from "../validations/userValidation.js";
 import type { PaginationQuery } from "../types/index.js";
 import { buildPagination } from "../utils/response.js";
@@ -39,6 +40,21 @@ export class UserService {
     // Filter by role
     if (query.role) {
       filter.role = query.role;
+    }
+
+    // Filter by team — find users who are leaders/members of the given team
+    if (query.team) {
+      const team = await Team.findById(query.team).select("leaders members").lean();
+      if (team) {
+        const memberIds = [
+          ...((team.leaders as unknown[]) ?? []),
+          ...((team.members as unknown[]) ?? []),
+        ].map((id) => String(id));
+        filter._id = { $in: memberIds };
+      } else {
+        // Unknown team — return empty result
+        filter._id = { $in: [] };
+      }
     }
 
     const sortField = query.sortBy ?? "createdAt";

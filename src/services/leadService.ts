@@ -83,9 +83,9 @@ export class LeadService {
 
     const query: Record<string, unknown> = {};
 
+    // console.log( (userRole?.roleName === "Super Admin" || userRole?.roleName === "Reporter"),userRole,"NAKANANKA" )
     // ── Role-scoped visibility ────────────────────────────────────────────────
-    const isSuperAdmin =
-      userRole?.isSystemRole === true && userRole?.roleName === "Super Admin";
+    const isSuperAdmin =(userRole?.roleName === "Super Admin" || userRole?.roleName === "Reporter");
 
     if (!isSuperAdmin && userId) {
       // Check if the user is a leader of any team

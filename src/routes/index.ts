@@ -7,6 +7,7 @@ import userLeadRoutes from "./userLeadRoutes.js";
 import teamRoutes from "./teamRoutes.js";
 import courseRoutes from "./courseRoutes.js";
 import sheetsRoutes from "./sheetsRoutes.js";
+import reportRoutes from "./reportRoutes.js";
 
 const router = Router();
 
@@ -18,6 +19,7 @@ router.use("/leads", leadRoutes);
 router.use("/teams", teamRoutes);
 router.use("/courses", courseRoutes);
 router.use("/sheets",  sheetsRoutes);
+router.use("/reports", reportRoutes);
 
 // Health check
 router.get("/health", (_req, res) => {

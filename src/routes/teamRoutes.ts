@@ -3,6 +3,7 @@ import {
   createTeam,
   getTeams,
   getTeamById,
+  getMyTeam,
   updateTeam,
   deleteTeam,
   getTeamLeads,
@@ -24,9 +25,11 @@ const router = Router();
 router.use(authenticate);
 
 // ── CRUD ─────────────────────────────────────────────────────────────────────
-router.get(   "/", checkPermission("leads", "view"),   getTeams);
-router.post(  "/", checkPermission("leads", "create"), createTeam);
-router.get(   "/:id", checkPermission("leads", "view"),   getTeamById);
+router.get(   "/",     checkPermission("leads", "view"),   getTeams);
+router.post(  "/",     checkPermission("leads", "create"), createTeam);
+// /mine MUST come before /:id so Express doesn't treat "mine" as an ObjectId
+router.get(   "/mine", checkPermission("leads", "view"),   getMyTeam);
+router.get(   "/:id",  checkPermission("leads", "view"),   getTeamById);
 router.put(   "/:id", checkPermission("leads", "edit"),   updateTeam);
 router.delete("/:id", checkPermission("leads", "delete"), deleteTeam);
 

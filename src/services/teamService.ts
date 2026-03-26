@@ -31,6 +31,19 @@ export class TeamService {
     return populatedTeam(team._id.toString());
   }
 
+  // ── My Team (for regular users / team leaders) ───────────────────────────────
+  async getTeamByMember(userId: string) {
+    const uid = new mongoose.Types.ObjectId(userId);
+    const team = await Team.findOne({
+      $or: [{ leaders: uid }, { members: uid }],
+    })
+      .populate("leaders", "name email designation status")
+      .populate("members", "name email designation status")
+      .lean();
+
+    return team ?? null;
+  }
+
   // ── List ─────────────────────────────────────────────────────────────────────
   async getTeams(filters: TeamFilters) {
     const page  = Math.max(1, parseInt(filters.page  ?? "1",  10));
@@ -42,6 +55,8 @@ export class TeamService {
     if (filters.search) {
       query.name = new RegExp(filters.search, "i");
     }
+    
+    
 
     const [teams, total] = await Promise.all([
       Team.find(query)
@@ -213,12 +228,20 @@ export class TeamService {
 
   // ── Auto-assign team leads to members (within-team distribution) ──────────────
   async autoAssignTeamLeadsToMembers(teamId: string, leadIds?: string[]) {
-    const team = await Team.findById(teamId).populate("members", "name");
+    const team = await Team.findById(teamId)
+      .populate("members", "name")
+      .populate("leaders", "_id");
     if (!team) throw Object.assign(new Error("Team not found"), { statusCode: 404 });
 
-    const membersList = team.members as unknown as Array<{ _id: { toString(): string }; name: string }>;
+    // Exclude team leaders — only regular members receive auto-assigned leads
+    const leaderIds = new Set(
+      (team.leaders as unknown as { _id: { toString(): string } }[]).map((l) => l._id.toString()),
+    );
+    const membersList = (team.members as unknown as Array<{ _id: { toString(): string }; name: string }>)
+      .filter((m) => !leaderIds.has(m._id.toString()));
+
     if (membersList.length === 0) {
-      throw Object.assign(new Error("This team has no members to assign leads to"), { statusCode: 400 });
+      throw Object.assign(new Error("This team has no members (excluding leaders) to assign leads to"), { statusCode: 400 });
     }
 
     // Get leads to assign — either specific leads or all unassigned team leads
