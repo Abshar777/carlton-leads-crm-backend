@@ -4,6 +4,8 @@ import type { AuthenticatedRequest, IRole } from "../types/index.js";
 import { LeadService } from "../services/leadService.js";
 import { ExcelService } from "../services/excelService.js";
 import { sendSuccess, sendError } from "../utils/response.js";
+import { sendPushToUser } from "../services/pushService.js";
+import { emitToUser } from "../socket.js";
 
 const leadService = new LeadService();
 const excelService = new ExcelService();
@@ -278,6 +280,27 @@ export const assignLead = async (
       parsed.data.userId,
       req.user!.userId,
     );
+
+    // ── Notify the assigned user ───────────────────────────────────────────────
+    const assignedUserId = parsed.data.userId;
+    const leadDoc = lead as unknown as { name?: string; _id?: { toString(): string } };
+    const leadId  = leadDoc?._id?.toString() ?? req.params.id;
+    const leadName = leadDoc?.name ?? "a new lead";
+    const notifPayload = {
+      title: "New Lead Assigned",
+      body: `You have been assigned the lead: ${leadName}`,
+      tag: `lead-assigned-${leadId}`,
+      url: `/leads/${leadId}`,
+      data: { type: "lead_assigned", leadId },
+    };
+    // Real-time socket event
+    emitToUser(assignedUserId, "notification", {
+      ...notifPayload,
+      createdAt: new Date().toISOString(),
+    });
+    // Web push (fire-and-forget)
+    sendPushToUser(assignedUserId, notifPayload).catch(() => null);
+
     sendSuccess(res, "Lead assigned successfully", lead);
   } catch (error) {
     next(error);

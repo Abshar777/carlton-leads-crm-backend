@@ -1,4 +1,5 @@
 import "dotenv/config";
+import { createServer } from "http";
 import express from "express";
 import cors from "cors";
 import helmet from "helmet";
@@ -7,6 +8,7 @@ import { connectDB } from "./config/database.js";
 import { env } from "./config/env.js";
 import routes from "./routes/index.js";
 import { errorHandler, notFound } from "./middleware/errorHandler.js";
+import { initSocket } from "./socket.js";
 
 const app = express();
 
@@ -37,7 +39,9 @@ app.use(errorHandler);
 // ─── Start Server ─────────────────────────────────────────────────────────────
 const start = async () => {
   await connectDB();
-  app.listen(env.PORT, () => {
+  const httpServer = createServer(app);
+  initSocket(httpServer);
+  httpServer.listen(env.PORT, () => {
     console.log(`🚀 Server running on http://localhost:${env.PORT} [${env.NODE_ENV}]`);
     console.log(`📋 API Base: http://localhost:${env.PORT}/api/v1`);
   });

@@ -9,6 +9,6 @@ const router = Router({ mergeParams: true });
 router.use(authenticate);
 
 router.get("/:userId/leads", checkPermission("users", "view"), getLeadsByUser);
-router.get("/:userId/lead-stats", checkPermission("users", "view"), getUserLeadStats);
+router.get("/:userId/lead-stats", getUserLeadStats);
 
 export default router;

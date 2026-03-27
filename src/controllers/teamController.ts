@@ -3,6 +3,9 @@ import { z } from "zod";
 import type { AuthenticatedRequest } from "../types/index.js";
 import { TeamService } from "../services/teamService.js";
 import { sendError, sendSuccess } from "../utils/response.js";
+import { emitTeamUpdate, emitToUser } from "../socket.js";
+import { sendPushToUsers } from "../services/pushService.js";
+import { Team } from "../models/Team.js";
 
 const teamService = new TeamService();
 
@@ -376,6 +379,35 @@ export async function postTeamMessage(
   try {
     const { content } = z.object({ content: z.string().min(1).max(1000) }).parse(req.body);
     const msg = await teamService.postTeamMessage(req.params.id, req.user!.userId, content);
+
+    // Emit real-time event to everyone in the team room
+    if (msg) {
+      emitTeamUpdate(req.params.id, { ...(msg as object), type: "message" });
+    }
+
+    // ── Push + socket notification to all team leaders ─────────────────────────
+    const senderId = req.user!.userId;
+    const senderName = (msg as unknown as { author?: { name?: string } })?.author?.name ?? "A team member";
+    const teamDoc = await Team.findById(req.params.id).select("leaders name").lean();
+    if (teamDoc) {
+      const leaderIds = (teamDoc.leaders as unknown as { toString(): string }[])
+        .map((l) => l.toString())
+        .filter((id) => id !== senderId);
+
+      const notifPayload = {
+        title: `💬 Team Update — ${teamDoc.name}`,
+        body: `${senderName}: ${content.length > 80 ? content.slice(0, 80) + "…" : content}`,
+        tag: `team-message-${req.params.id}`,
+        url: `/teams/${req.params.id}`,
+        data: { type: "team_message", teamId: req.params.id },
+      };
+
+      for (const lid of leaderIds) {
+        emitToUser(lid, "notification", { ...notifPayload, createdAt: new Date().toISOString() });
+      }
+      sendPushToUsers(leaderIds, notifPayload).catch(() => null);
+    }
+
     sendSuccess(res, "Message posted", msg, 201);
   } catch (err) {
     next(err);

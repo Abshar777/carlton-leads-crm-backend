@@ -2,6 +2,8 @@ import { Lead } from "../models/Lead.js";
 import { User } from "../models/User.js";
 import { Team } from "../models/Team.js";
 import { buildPagination } from "../utils/response.js";
+import { emitTeamUpdate, emitToUser } from "../socket.js";
+import { sendPushToUsers } from "./pushService.js";
 import type {
   LeadFilters,
   LeadStatus,
@@ -47,6 +49,57 @@ function addLog(
     changes,
     createdAt: new Date(),
   } as never);
+}
+
+// ── Emit last activity log to the lead's team room ────────────────────────────
+async function emitActivity(
+  lead: { _id: unknown; name: string; team?: unknown; activityLogs: unknown[] },
+) {
+  const teamId = lead.team ? String(lead.team) : null;
+  if (!teamId) return;
+  const log = lead.activityLogs[lead.activityLogs.length - 1] as Record<string, unknown>;
+  if (!log) return;
+
+  // Fetch performer name
+  const performer = log.performedBy
+    ? await User.findById(log.performedBy).select("name email").lean()
+    : null;
+
+  emitTeamUpdate(teamId, {
+    _id:         String(log._id ?? ""),
+    type:        "activity",
+    action:      log.action,
+    description: log.description,
+    performedBy: performer
+      ? { _id: String(performer._id), name: performer.name, email: performer.email }
+      : null,
+    leadId:   String(lead._id),
+    leadName: lead.name,
+    changes:  log.changes ?? undefined,
+    createdAt: (log.createdAt as Date).toISOString(),
+  });
+}
+
+// ── Notify team leaders about a lead event ────────────────────────────────────
+async function notifyTeamLeaders(
+  lead: { _id: unknown; name: string; team?: unknown },
+  skipUserId: string,
+  payload: { title: string; body: string; tag?: string; url?: string; data?: Record<string, unknown> },
+) {
+  const teamId = lead.team ? String(lead.team) : null;
+  if (!teamId) return;
+
+  const teamDoc = await Team.findById(teamId).select("leaders").lean();
+  if (!teamDoc) return;
+
+  const leaderIds = (teamDoc.leaders as unknown as { toString(): string }[])
+    .map((l) => l.toString())
+    .filter((id) => id !== skipUserId);
+
+  for (const lid of leaderIds) {
+    emitToUser(lid, "notification", { ...payload, createdAt: new Date().toISOString() });
+  }
+  sendPushToUsers(leaderIds, payload).catch(() => null);
 }
 
 // ─── LeadService ──────────────────────────────────────────────────────────────
@@ -231,6 +284,15 @@ export class LeadService {
     );
 
     await lead.save();
+    void emitActivity(lead as never);
+    // Notify team leaders of status change
+    void notifyTeamLeaders(lead as never, performedById, {
+      title: "Lead Status Updated",
+      body: `${lead.name}: status changed to "${status}"`,
+      tag: `status-${String(lead._id)}`,
+      url: `/leads/${String(lead._id)}`,
+      data: { type: "status_changed", leadId: String(lead._id) },
+    });
     return buildPopulatedQuery(id);
   }
 
@@ -260,6 +322,7 @@ export class LeadService {
     );
 
     await lead.save();
+    void emitActivity(lead as never);
     return buildPopulatedQuery(id);
   }
 
@@ -291,10 +354,17 @@ export class LeadService {
     console.log("passeddd 3 🔴");
 
     addLog(lead as never, "note_added", "A note was added", authorId, { note: { from: null, to: content } });
-    console.log("passeddd 4 🔴");
 
     await lead.save();
-    console.log("passeddd 4 🔴");
+    void emitActivity(lead as never);
+    // Notify team leaders of new note
+    void notifyTeamLeaders(lead as never, authorId, {
+      title: "Note Added",
+      body: `${lead.name}: ${content.length > 80 ? content.slice(0, 80) + "…" : content}`,
+      tag: `note-${String(lead._id)}`,
+      url: `/leads/${String(lead._id)}`,
+      data: { type: "note_added", leadId: String(lead._id) },
+    });
     return buildPopulatedQuery(leadId);
   }
 
@@ -325,6 +395,7 @@ export class LeadService {
     addLog(lead as never, "note_updated", "A note was updated", performedById, { note: { from: null, to: content } });
 
     await lead.save();
+    void emitActivity(lead as never);
     return buildPopulatedQuery(leadId);
   }
 

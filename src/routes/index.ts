@@ -8,6 +8,7 @@ import teamRoutes from "./teamRoutes.js";
 import courseRoutes from "./courseRoutes.js";
 import sheetsRoutes from "./sheetsRoutes.js";
 import reportRoutes from "./reportRoutes.js";
+import pushRoutes from "./pushRoutes.js";
 
 const router = Router();
 
@@ -20,6 +21,7 @@ router.use("/teams", teamRoutes);
 router.use("/courses", courseRoutes);
 router.use("/sheets",  sheetsRoutes);
 router.use("/reports", reportRoutes);
+router.use("/push",    pushRoutes);
 
 // Health check
 router.get("/health", (_req, res) => {
