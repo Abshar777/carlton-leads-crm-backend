@@ -62,6 +62,14 @@ const bdePermissions: PermissionsMap = {
     approve: false,
     export: false,
   },
+  reminders: {
+    view: true,
+    create: true,
+    edit: true,
+    delete: true,
+    approve: false,
+    export: false,
+  },
   settings: {
     view: false,
     create: false,

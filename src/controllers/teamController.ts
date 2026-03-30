@@ -413,3 +413,46 @@ export async function postTeamMessage(
     next(err);
   }
 }
+
+// ─── Toggle team-member active status (for auto-assignment) ───────────────────
+export async function toggleMemberActive(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction,
+) {
+  try {
+    const { id: teamId, memberId } = req.params;
+    const mongoose = await import("mongoose");
+
+    const team = await Team.findById(teamId);
+    if (!team) return sendError(res, "Team not found", 404);
+
+    // Verify the user is actually a member (or leader) of this team
+    const allIds = [
+      ...(team.members as unknown as { toString(): string }[]).map((m) => m.toString()),
+      ...(team.leaders as unknown as { toString(): string }[]).map((l) => l.toString()),
+    ];
+    if (!allIds.includes(memberId)) {
+      return sendError(res, "User is not a member of this team", 400);
+    }
+
+    const inactiveArr = (team.inactiveMembers as unknown as { toString(): string }[]).map((m) => m.toString());
+    const isCurrentlyInactive = inactiveArr.includes(memberId);
+    const memberObjId = new mongoose.default.Types.ObjectId(memberId);
+
+    if (isCurrentlyInactive) {
+      // Activate — remove from inactiveMembers
+      await Team.findByIdAndUpdate(teamId, { $pull: { inactiveMembers: memberObjId } });
+    } else {
+      // Deactivate — add to inactiveMembers
+      await Team.findByIdAndUpdate(teamId, { $addToSet: { inactiveMembers: memberObjId } });
+    }
+
+    sendSuccess(res, `Member marked as ${isCurrentlyInactive ? "active" : "inactive"} for auto-assignment`, {
+      memberId,
+      isActive: isCurrentlyInactive, // after toggle: was inactive → now active
+    });
+  } catch (err) {
+    next(err);
+  }
+}

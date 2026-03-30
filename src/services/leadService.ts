@@ -3,7 +3,7 @@ import { User } from "../models/User.js";
 import { Team } from "../models/Team.js";
 import { buildPagination } from "../utils/response.js";
 import { emitTeamUpdate, emitToUser } from "../socket.js";
-import { sendPushToUsers } from "./pushService.js";
+import { sendPushToUsers, notifyLeadAssignment } from "./pushService.js";
 import type {
   LeadFilters,
   LeadStatus,
@@ -245,6 +245,8 @@ export class LeadService {
       }
     }
 
+    const prevAssignedTo = lead.assignedTo?.toString() ?? null;
+
     Object.assign(lead, data);
 
     const changedFields = Object.keys(changes);
@@ -259,6 +261,13 @@ export class LeadService {
     }
 
     await lead.save();
+
+    // If assignedTo changed, notify the new assignee
+    const newAssignedTo = data.assignedTo ? String(data.assignedTo) : null;
+    if (newAssignedTo && newAssignedTo !== prevAssignedTo) {
+      void notifyLeadAssignment(newAssignedTo, String(lead._id), lead.name, emitToUser).catch(() => null);
+    }
+
     return buildPopulatedQuery(id);
   }
 
@@ -475,6 +484,7 @@ export class LeadService {
       "rejected",
       "cnc",
       "booking",
+      "partialbooking",
       "interested",
     ];
     const [total, ...statusCounts] = await Promise.all([
@@ -491,6 +501,10 @@ export class LeadService {
       followup: statusCounts[2],
       closed: statusCounts[3],
       rejected: statusCounts[4],
+      cnc: statusCounts[5],
+      booking: statusCounts[6],
+      partialbooking: statusCounts[7],
+      interested: statusCounts[8],
     };
   }
 
@@ -541,7 +555,7 @@ export class LeadService {
       );
     }
 
-    // Sort teams by current lead count (ascending) for fair distribution
+    // Count current leads per team and sort ascending (fill-to-equal algorithm)
     const teamLeadCounts = await Promise.all(
       activeTeams.map(async (team) => {
         const count = await Lead.countDocuments({ team: team._id });
@@ -550,11 +564,36 @@ export class LeadService {
     );
     teamLeadCounts.sort((a, b) => a.count - b.count);
 
+    // Build assignment list: one team entry per lead using fill-to-equal logic
+    // Phase 1 — fill each team below the ceiling (max) up to the ceiling
+    // Phase 2 — round-robin any remaining leads
+    const n = teamLeadCounts.length;
+    const maxLoad = teamLeadCounts[n - 1].count;
+    const assignedTeams: (typeof teamLeadCounts[0])[] = [];
+
+    // Phase 1
+    for (let i = 0; i < n - 1 && assignedTeams.length < leadsToAssign.length; i++) {
+      const gap  = maxLoad - teamLeadCounts[i].count;
+      const give = Math.min(gap, leadsToAssign.length - assignedTeams.length);
+      for (let g = 0; g < give; g++) {
+        assignedTeams.push(teamLeadCounts[i]);
+        teamLeadCounts[i].count++;
+      }
+    }
+
+    // Phase 2 — round-robin remainder
+    let rr = 0;
+    while (assignedTeams.length < leadsToAssign.length) {
+      assignedTeams.push(teamLeadCounts[rr % n]);
+      teamLeadCounts[rr % n].count++;
+      rr++;
+    }
+
     const results: { leadId: string; assignedTo: string }[] = [];
     const updates: Promise<unknown>[] = [];
 
     for (let i = 0; i < leadsToAssign.length; i++) {
-      const { team } = teamLeadCounts[i % teamLeadCounts.length];
+      const { team } = assignedTeams[i];
       const lead = leadsToAssign[i];
 
       updates.push(
@@ -575,7 +614,6 @@ export class LeadService {
         leadId: lead._id.toString(),
         assignedTo: team._id.toString(),
       });
-      teamLeadCounts[i % teamLeadCounts.length].count += 1;
     }
 
     await Promise.all(updates);

@@ -5,6 +5,8 @@ import { User } from "../models/User.js";
 import { TeamMessage } from "../models/TeamMessage.js";
 import { buildPagination } from "../utils/response.js";
 import type { TeamFilters, ITeam, IUser } from "../types/index.js";
+import { emitToUser } from "../socket.js";
+import { notifyLeadAssignment, notifyBulkLeadAssignment } from "./pushService.js";
 
 // ─── Populated query helper ───────────────────────────────────────────────────
 
@@ -210,7 +212,7 @@ export class TeamService {
     const stats = await Promise.all(
       allUsers.map(async (u) => {
         const id = u._id.toString();
-        const [total, assigned, followup, closed, rejected, cnc, booking, interested] = await Promise.all([
+        const [total, assigned, followup, closed, rejected, cnc, booking, partialbooking, interested] = await Promise.all([
           Lead.countDocuments({ team: teamId, assignedTo: id }),
           Lead.countDocuments({ team: teamId, assignedTo: id, status: "assigned" }),
           Lead.countDocuments({ team: teamId, assignedTo: id, status: "followup" }),
@@ -218,9 +220,10 @@ export class TeamService {
           Lead.countDocuments({ team: teamId, assignedTo: id, status: "rejected" }),
           Lead.countDocuments({ team: teamId, assignedTo: id, status: "cnc" }),
           Lead.countDocuments({ team: teamId, assignedTo: id, status: "booking" }),
+          Lead.countDocuments({ team: teamId, assignedTo: id, status: "partialbooking" }),
           Lead.countDocuments({ team: teamId, assignedTo: id, status: "interested" }),
         ]);
-        return { user: u, total, assigned, followup, closed, rejected, cnc, booking, interested };
+        return { user: u, total, assigned, followup, closed, rejected, cnc, booking, partialbooking, interested };
       })
     );
 
@@ -231,18 +234,23 @@ export class TeamService {
   async autoAssignTeamLeadsToMembers(teamId: string, leadIds?: string[]) {
     const team = await Team.findById(teamId)
       .populate("members", "name")
-      .populate("leaders", "_id");
+      .populate("leaders", "_id")
+      .populate("inactiveMembers", "_id");
     if (!team) throw Object.assign(new Error("Team not found"), { statusCode: 404 });
 
     // Exclude team leaders — only regular members receive auto-assigned leads
     const leaderIds = new Set(
       (team.leaders as unknown as { _id: { toString(): string } }[]).map((l) => l._id.toString()),
     );
+    // Also exclude members marked inactive for auto-assignment in this team
+    const inactiveMemberIds = new Set(
+      (team.inactiveMembers as unknown as { toString(): string }[]).map((m) => m.toString()),
+    );
     const membersList = (team.members as unknown as Array<{ _id: { toString(): string }; name: string }>)
-      .filter((m) => !leaderIds.has(m._id.toString()));
+      .filter((m) => !leaderIds.has(m._id.toString()) && !inactiveMemberIds.has(m._id.toString()));
 
     if (membersList.length === 0) {
-      throw Object.assign(new Error("This team has no members (excluding leaders) to assign leads to"), { statusCode: 400 });
+      throw Object.assign(new Error("No active members available for auto-assignment (all members are inactive or are leaders)"), { statusCode: 400 });
     }
 
     // Get leads to assign — either specific leads or all unassigned team leads
@@ -288,6 +296,14 @@ export class TeamService {
     }
 
     await Promise.all(updates);
+    // Notify each assigned member — group leads by memberId
+    const countByMember: Record<string, number> = {};
+    for (const r of results) {
+      countByMember[r.assignedTo] = (countByMember[r.assignedTo] ?? 0) + 1;
+    }
+    for (const [uid, cnt] of Object.entries(countByMember)) {
+      void notifyBulkLeadAssignment(uid, cnt, emitToUser).catch(() => null);
+    }
     return { assigned: results.length, results };
   }
 
@@ -331,6 +347,13 @@ export class TeamService {
     } as never);
 
     await lead.save();
+    // Notify the assigned member
+    void notifyLeadAssignment(
+      memberId,
+      String(lead._id),
+      lead.name,
+      emitToUser,
+    ).catch(() => null);
     return lead;
   }
 
@@ -346,7 +369,7 @@ export class TeamService {
       ...(team.members as unknown as (IUser & { _id: { toString(): string } })[]),
     ];
 
-    const [total, newCount, assigned, followup, closed, rejected, unassigned, cnc, booking, interested] =
+    const [total, newCount, assigned, followup, closed, rejected, unassigned, cnc, booking, partialbooking, interested] =
       await Promise.all([
         Lead.countDocuments({ team: teamId }),
         Lead.countDocuments({ team: teamId, status: "new" }),
@@ -357,46 +380,67 @@ export class TeamService {
         Lead.countDocuments({ team: teamId, assignedTo: null }),
         Lead.countDocuments({ team: teamId, status: "cnc" }),
         Lead.countDocuments({ team: teamId, status: "booking" }),
+        Lead.countDocuments({ team: teamId, status: "partialbooking" }),
         Lead.countDocuments({ team: teamId, status: "interested" }),
       ]);
 
     const memberRankings = await Promise.all(
       allMembers.map(async (m) => {
         const id = m._id.toString();
-        const [mTotal, mAssigned, mFollowup, mClosed, mRejected, mCnc, mBooking, mInterested] = await Promise.all([
-          Lead.countDocuments({ team: teamId, assignedTo: id }),
-          Lead.countDocuments({ team: teamId, assignedTo: id, status: "assigned" }),
-          Lead.countDocuments({ team: teamId, assignedTo: id, status: "followup" }),
-          Lead.countDocuments({ team: teamId, assignedTo: id, status: "closed" }),
-          Lead.countDocuments({ team: teamId, assignedTo: id, status: "rejected" }),
-          Lead.countDocuments({ team: teamId, assignedTo: id, status: "cnc" }),
-          Lead.countDocuments({ team: teamId, assignedTo: id, status: "booking" }),
-          Lead.countDocuments({ team: teamId, assignedTo: id, status: "interested" }),
+        const uid = new mongoose.Types.ObjectId(id);
+
+        // Run status counts + total payments in a single aggregation
+        const [agg] = await Lead.aggregate([
+          { $match: { team: new mongoose.Types.ObjectId(teamId), assignedTo: uid } },
+          {
+            $group: {
+              _id: null,
+              total:          { $sum: 1 },
+              assigned:       { $sum: { $cond: [{ $eq: ["$status", "assigned"] },       1, 0] } },
+              followup:       { $sum: { $cond: [{ $eq: ["$status", "followup"] },       1, 0] } },
+              closed:         { $sum: { $cond: [{ $eq: ["$status", "closed"] },         1, 0] } },
+              rejected:       { $sum: { $cond: [{ $eq: ["$status", "rejected"] },       1, 0] } },
+              cnc:            { $sum: { $cond: [{ $eq: ["$status", "cnc"] },            1, 0] } },
+              booking:        { $sum: { $cond: [{ $eq: ["$status", "booking"] },        1, 0] } },
+              partialbooking: { $sum: { $cond: [{ $eq: ["$status", "partialbooking"] }, 1, 0] } },
+              interested:     { $sum: { $cond: [{ $eq: ["$status", "interested"] },     1, 0] } },
+              // Sum all payments collected across all leads assigned to this member
+              totalPayments:  { $sum: { $sum: "$payments.amount" } },
+            },
+          },
         ]);
-        const closureRate = mTotal > 0 ? Math.round((mClosed / mTotal) * 100) : 0;
+
+        const d = agg ?? {
+          total: 0, assigned: 0, followup: 0, closed: 0, rejected: 0,
+          cnc: 0, booking: 0, partialbooking: 0, interested: 0, totalPayments: 0,
+        };
+        const closureRate = d.total > 0 ? Math.round((d.closed / d.total) * 100) : 0;
         const isLeader = (team.leaders as unknown as { _id: { toString(): string } }[]).some(
           (l) => l._id.toString() === id,
         );
         return {
           user: m,
           isLeader,
-          total: mTotal,
-          assigned: mAssigned,
-          followup: mFollowup,
-          closed: mClosed,
-          rejected: mRejected,
-          cnc: mCnc,
-          booking: mBooking,
-          interested: mInterested,
+          total:          d.total,
+          assigned:       d.assigned,
+          followup:       d.followup,
+          closed:         d.closed,
+          rejected:       d.rejected,
+          cnc:            d.cnc,
+          booking:        d.booking,
+          partialbooking: d.partialbooking,
+          interested:     d.interested,
+          totalPayments:  d.totalPayments,
           closureRate,
         };
       }),
     );
 
-    memberRankings.sort((a, b) => b.closed - a.closed);
+    // Best performer = highest total payments collected
+    memberRankings.sort((a, b) => b.totalPayments - a.totalPayments);
 
     return {
-      statusDistribution: { total, new: newCount, assigned, followup, closed, rejected, unassigned, cnc, booking, interested },
+      statusDistribution: { total, new: newCount, assigned, followup, closed, rejected, unassigned, cnc, booking, partialbooking, interested },
       memberRankings,
     };
   }
@@ -414,9 +458,9 @@ export class TeamService {
     if (!team)
       throw Object.assign(new Error("Team not found"), { statusCode: 404 });
 
-    const isMember = (team.members as unknown as mongoose.Types.ObjectId[]).some(
-      (m) => m.toString() === memberId,
-    );
+    const isMember =
+      (team.members as unknown as mongoose.Types.ObjectId[]).some((m) => m.toString() === memberId) ||
+      (team.leaders as unknown as mongoose.Types.ObjectId[]).some((l) => l.toString() === memberId);
     if (!isMember)
       throw Object.assign(new Error("User is not a member of this team"), { statusCode: 400 });
 
@@ -440,6 +484,10 @@ export class TeamService {
         return lead.save();
       }),
     );
+    // Notify the assigned member about all bulk-assigned leads
+    if (leads.length > 0) {
+      void notifyBulkLeadAssignment(memberId, leads.length, emitToUser).catch(() => null);
+    }
     return { updated: leads.length };
   }
 
@@ -571,7 +619,7 @@ export class TeamService {
     const filterStage = conditions.length > 0 ? [{ $match: { $and: conditions } }] : [];
 
     // ── Shared base pipeline ─────────────────────────────────────────────────
-    const basePipeline: object[] = [
+    const basePipeline = [
       { $match: { team: teamObjectId } },
       {
         $lookup: {

@@ -32,6 +32,13 @@ const teamSchema = new Schema<ITeam>(
       enum: ["active", "inactive"],
       default: "active",
     },
+    // Members marked inactive for auto-assignment within this team (team-level, not global)
+    inactiveMembers: [
+      {
+        type: Schema.Types.ObjectId,
+        ref: "User",
+      },
+    ],
   },
   { timestamps: true, versionKey: false }
 );

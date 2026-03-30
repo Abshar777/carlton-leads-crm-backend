@@ -12,9 +12,10 @@ const envSchema = z.object({
   SUPER_ADMIN_EMAIL: z.string().email().default("superadmin@crm.com"),
   SUPER_ADMIN_PASSWORD: z.string().default("SuperAdmin@123"),
   CLIENT_URL: z.string().default("http://localhost:3000"),
-  VAPID_PUBLIC_KEY:  z.string().default(""),
-  VAPID_PRIVATE_KEY: z.string().default(""),
-  VAPID_SUBJECT:     z.string().default("mailto:admin@carltoncrm.com"),
+  VAPID_PUBLIC_KEY:    z.string().default(""),
+  VAPID_PRIVATE_KEY:   z.string().default(""),
+  VAPID_SUBJECT:       z.string().default("mailto:admin@carltoncrm.com"),
+  GEMINI_API_KEY:      z.string().default(""),
 });
 
 const parsed = envSchema.safeParse(process.env);

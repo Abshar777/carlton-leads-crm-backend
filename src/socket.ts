@@ -36,12 +36,18 @@ export function initSocket(httpServer: HttpServer): Server {
     // Each user automatically joins their own private room
     if (userId) {
       socket.join(`user:${userId}`);
+      console.log(`🟢 Socket connected: userId=${userId} socketId=${socket.id}`);
     }
+
+    socket.on("disconnect", () => {
+      console.log(`🔴 Socket disconnected: userId=${userId} socketId=${socket.id}`);
+    });
 
     // Client joins a specific team room
     socket.on("join:team", (teamId: string) => {
       if (typeof teamId === "string" && teamId.length > 0) {
         socket.join(`team:${teamId}`);
+        console.log(`📌 User ${userId} joined team room: ${teamId}`);
       }
     });
 
@@ -81,5 +87,8 @@ export function emitToUser(
   payload: object
 ): void {
   if (!io) return;
-  io.to(`user:${userId}`).emit(event, payload);
+  const room = `user:${userId}`;
+  const sockets = io.sockets.adapter.rooms.get(room);
+  console.log(`📤 emitToUser → room=${room} sockets=${sockets?.size ?? 0} event=${event}`);
+  io.to(room).emit(event, payload);
 }

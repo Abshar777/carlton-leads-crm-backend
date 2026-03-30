@@ -6,6 +6,8 @@ import { ExcelService } from "../services/excelService.js";
 import { sendSuccess, sendError } from "../utils/response.js";
 import { sendPushToUser } from "../services/pushService.js";
 import { emitToUser } from "../socket.js";
+import { Lead } from "../models/Lead.js";
+import mongoose from "mongoose";
 
 const leadService = new LeadService();
 const excelService = new ExcelService();
@@ -19,7 +21,7 @@ const createLeadSchema = z.object({
   source: z.string().max(100).optional(),
   course: z.string().optional().nullable(),
   status: z
-    .enum(["new", "assigned", "followup", "closed", "rejected", "cnc", "booking", "interested"])
+    .enum(["new", "assigned", "followup", "closed", "rejected", "cnc", "booking", "partialbooking", "interested"])
     .optional(),
   assignedTo: z.string().optional(),
 });
@@ -36,13 +38,13 @@ const updateLeadSchema = z.object({
   source: z.string().max(100).optional().nullable(),
   course: z.string().optional().nullable(),
   status: z
-    .enum(["new", "assigned", "followup", "closed", "rejected", "cnc", "booking", "interested"])
+    .enum(["new", "assigned", "followup", "closed", "rejected", "cnc", "booking", "partialbooking", "interested"])
     .optional(),
   assignedTo: z.string().optional().nullable(),
 });
 
 const updateStatusSchema = z.object({
-  status: z.enum(["new", "assigned", "followup", "closed", "rejected", "cnc", "booking", "interested"]),
+  status: z.enum(["new", "assigned", "followup", "closed", "rejected", "cnc", "booking", "partialbooking", "interested"]),
 });
 
 const assignLeadSchema = z.object({
@@ -161,6 +163,10 @@ export const createLead = async (
     }
 
     const data = { ...parsed.data, email: parsed.data.email || undefined };
+    // Auto-assign to the creator if no explicit assignee is provided
+    if (!data.assignedTo) {
+      data.assignedTo = req.user!.userId;
+    }
     const lead = await leadService.createLead(data, req.user!.userId);
     sendSuccess(res, "Lead created successfully", lead, 201);
   } catch (error) {
@@ -503,7 +509,7 @@ export const bulkUpdateLeadStatus = async (
 ): Promise<void> => {
   try {
     const parsed = bulkLeadIdsSchema
-      .extend({ status: z.enum(["new", "assigned", "followup", "closed", "rejected", "cnc", "booking", "interested"]) })
+      .extend({ status: z.enum(["new", "assigned", "followup", "closed", "rejected", "cnc", "booking", "partialbooking", "interested"]) })
       .safeParse(req.body);
     if (!parsed.success) {
       sendError(res, "Validation failed", 400, parsed.error.flatten().fieldErrors);
@@ -579,6 +585,254 @@ export const transferLeadToTeam = async (
       req.user!.userId,
     );
     sendSuccess(res, "Lead transferred to team successfully", lead);
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ─── Reminder Controllers ─────────────────────────────────────────────────────
+
+const reminderSchema = z.object({
+  title:    z.string().max(200).optional(),
+  note:     z.string().max(1000).optional(),
+  remindAt: z.string().min(1, "remindAt is required"),
+  isDone:   z.boolean().optional(),
+});
+
+/** GET /leads/reminders/mine — all active reminders for the current user */
+export const getMyReminders = async (
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<void> => {
+  try {
+    const userId = req.user!.userId;
+    const leads = await Lead.find(
+      { "reminders.createdBy": new mongoose.Types.ObjectId(userId) },
+      { name: 1, phone: 1, email: 1, status: 1, assignedTo: 1, team: 1, reminders: 1 },
+    )
+      .populate("assignedTo", "name email")
+      .populate("team", "name")
+      .lean();
+
+    // flatten: one entry per reminder that belongs to this user
+    const items = leads.flatMap((lead) =>
+      (lead.reminders ?? [])
+        .filter((r) => r.createdBy?.toString() === userId)
+        .map((r) => ({
+          ...r,
+          lead: {
+            _id: lead._id,
+            name: lead.name,
+            phone: lead.phone,
+            email: lead.email,
+            status: lead.status,
+            assignedTo: lead.assignedTo,
+            team: lead.team,
+          },
+        })),
+    );
+
+    // Sort by remindAt ascending
+    type ReminderItem = (typeof items)[number] & { remindAt: Date };
+    (items as ReminderItem[]).sort((a, b) => new Date(a.remindAt).getTime() - new Date(b.remindAt).getTime());
+
+    sendSuccess(res, "Reminders fetched", items);
+  } catch (error) {
+    next(error);
+  }
+};
+
+/** GET /leads/reminders/count — count of undone future reminders */
+export const getMyReminderCount = async (
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<void> => {
+  try {
+    const userId = req.user!.userId;
+    const leads = await Lead.find(
+      { "reminders.createdBy": new mongoose.Types.ObjectId(userId) },
+      { reminders: 1 },
+    ).lean();
+
+    let count = 0;
+    for (const lead of leads) {
+      count += (lead.reminders ?? []).filter(
+        (r) => r.createdBy?.toString() === userId && !r.isDone,
+      ).length;
+    }
+    sendSuccess(res, "Count fetched", { count });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/** POST /leads/:id/reminders */
+export const addReminder = async (
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<void> => {
+  try {
+    const parsed = reminderSchema.safeParse(req.body);
+    if (!parsed.success) {
+      sendError(res, "Validation failed", 400, parsed.error.flatten().fieldErrors);
+      return;
+    }
+    const lead = await Lead.findById(req.params.id);
+    if (!lead) { sendError(res, "Lead not found", 404); return; }
+
+    lead.reminders.push({
+      title:     parsed.data.title,
+      note:      parsed.data.note,
+      remindAt:  new Date(parsed.data.remindAt),
+      createdBy: new mongoose.Types.ObjectId(req.user!.userId),
+      isDone:    false,
+    } as never);
+
+    await lead.save();
+    const added = lead.reminders[lead.reminders.length - 1];
+    sendSuccess(res, "Reminder added", added, 201);
+  } catch (error) {
+    next(error);
+  }
+};
+
+/** PUT /leads/:id/reminders/:reminderId */
+export const updateReminder = async (
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<void> => {
+  try {
+    const parsed = reminderSchema.partial().safeParse(req.body);
+    if (!parsed.success) {
+      sendError(res, "Validation failed", 400, parsed.error.flatten().fieldErrors);
+      return;
+    }
+    const lead = await Lead.findById(req.params.id);
+    if (!lead) { sendError(res, "Lead not found", 404); return; }
+
+    const reminder = lead.reminders.id(req.params.reminderId);
+    if (!reminder) { sendError(res, "Reminder not found", 404); return; }
+
+    if (parsed.data.title    !== undefined) reminder.title    = parsed.data.title;
+    if (parsed.data.note     !== undefined) reminder.note     = parsed.data.note;
+    if (parsed.data.remindAt !== undefined) reminder.remindAt = new Date(parsed.data.remindAt);
+    if (parsed.data.isDone   !== undefined) reminder.isDone   = parsed.data.isDone;
+
+    await lead.save();
+    sendSuccess(res, "Reminder updated", reminder);
+  } catch (error) {
+    next(error);
+  }
+};
+
+/** DELETE /leads/:id/reminders/:reminderId */
+export const deleteReminder = async (
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<void> => {
+  try {
+    const lead = await Lead.findById(req.params.id);
+    if (!lead) { sendError(res, "Lead not found", 404); return; }
+
+    const reminder = lead.reminders.id(req.params.reminderId);
+    if (!reminder) { sendError(res, "Reminder not found", 404); return; }
+
+    reminder.deleteOne();
+    await lead.save();
+    sendSuccess(res, "Reminder deleted");
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ─── Payment Controllers ──────────────────────────────────────────────────────
+
+const paymentBodySchema = z.object({
+  amount: z.number().min(0, "Amount cannot be negative"),
+  note:   z.string().max(500).optional(),
+  paidAt: z.string().min(1, "paidAt is required"),
+});
+
+/** POST /leads/:id/payments */
+export const addPayment = async (
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<void> => {
+  try {
+    const parsed = paymentBodySchema.safeParse(req.body);
+    if (!parsed.success) {
+      sendError(res, "Validation failed", 400, parsed.error.flatten().fieldErrors);
+      return;
+    }
+    const lead = await Lead.findById(req.params.id);
+    if (!lead) { sendError(res, "Lead not found", 404); return; }
+
+    lead.payments.push({
+      amount:  parsed.data.amount,
+      note:    parsed.data.note,
+      paidAt:  new Date(parsed.data.paidAt),
+      addedBy: new mongoose.Types.ObjectId(req.user!.userId),
+    } as never);
+
+    await lead.save();
+    const added = lead.payments[lead.payments.length - 1];
+    sendSuccess(res, "Payment recorded", added, 201);
+  } catch (error) {
+    next(error);
+  }
+};
+
+/** PUT /leads/:id/payments/:paymentId */
+export const updatePayment = async (
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<void> => {
+  try {
+    const parsed = paymentBodySchema.partial().safeParse(req.body);
+    if (!parsed.success) {
+      sendError(res, "Validation failed", 400, parsed.error.flatten().fieldErrors);
+      return;
+    }
+    const lead = await Lead.findById(req.params.id);
+    if (!lead) { sendError(res, "Lead not found", 404); return; }
+
+    const payment = lead.payments.id(req.params.paymentId);
+    if (!payment) { sendError(res, "Payment not found", 404); return; }
+
+    if (parsed.data.amount !== undefined) payment.amount = parsed.data.amount;
+    if (parsed.data.note   !== undefined) payment.note   = parsed.data.note;
+    if (parsed.data.paidAt !== undefined) payment.paidAt = new Date(parsed.data.paidAt);
+
+    await lead.save();
+    sendSuccess(res, "Payment updated", payment);
+  } catch (error) {
+    next(error);
+  }
+};
+
+/** DELETE /leads/:id/payments/:paymentId */
+export const deletePayment = async (
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<void> => {
+  try {
+    const lead = await Lead.findById(req.params.id);
+    if (!lead) { sendError(res, "Lead not found", 404); return; }
+
+    const payment = lead.payments.id(req.params.paymentId);
+    if (!payment) { sendError(res, "Payment not found", 404); return; }
+
+    payment.deleteOne();
+    await lead.save();
+    sendSuccess(res, "Payment deleted");
   } catch (error) {
     next(error);
   }

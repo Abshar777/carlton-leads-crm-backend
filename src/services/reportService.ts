@@ -3,7 +3,7 @@ import { Team } from "../models/Team.js";
 import { User } from "../models/User.js";
 
 const ALL_STATUSES = [
-  "new", "assigned", "followup", "interested", "cnc", "booking", "closed", "rejected",
+  "new", "assigned", "followup", "interested", "cnc", "booking", "partialbooking", "closed", "rejected",
 ] as const;
 
 type LeadStatus = (typeof ALL_STATUSES)[number];
@@ -204,12 +204,15 @@ export class ReportService {
       { $match: { ...match, team: { $exists: true, $ne: null } } },
       {
         $group: {
-          _id:   "$team",
-          total: { $sum: 1 },
+          _id:           "$team",
+          total:         { $sum: 1 },
+          // Sum all payments[].amount across every lead in this team
+          totalPayments: { $sum: { $sum: "$payments.amount" } },
           ...this.statusSumFields(),
         },
       },
-      { $sort: { closed: -1, total: -1 } },
+      // Rank by highest total payments collected
+      { $sort: { totalPayments: -1, total: -1 } },
       {
         $lookup: {
           from:         "teams",
@@ -221,13 +224,14 @@ export class ReportService {
       { $unwind: { path: "$team", preserveNullAndEmptyArrays: false } },
       {
         $project: {
-          teamId:      "$_id",
-          name:        "$team.name",
-          description: "$team.description",
-          memberCount: { $size: { $ifNull: ["$team.members", []] } },
-          total:       1,
+          teamId:        "$_id",
+          name:          "$team.name",
+          description:   "$team.description",
+          memberCount:   { $size: { $ifNull: ["$team.members", []] } },
+          total:         1,
+          totalPayments: 1,
           new: 1, assigned: 1, followup: 1, interested: 1,
-          cnc: 1, booking: 1, closed: 1, rejected: 1,
+          cnc: 1, booking: 1, partialbooking: 1, closed: 1, rejected: 1,
           conversionRate: {
             $cond: [
               { $gt: ["$total", 0] },

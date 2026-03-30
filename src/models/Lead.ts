@@ -1,5 +1,5 @@
 import mongoose, { Schema } from "mongoose";
-import type { ILead, ILeadNote, IActivityLog } from "../types/index.js";
+import type { ILead, ILeadNote, IActivityLog, IReminder, IPayment } from "../types/index.js";
 
 // ─── Note Sub-Schema ──────────────────────────────────────────────────────────
 const leadNoteSchema = new Schema<ILeadNote & { createdAt: Date; updatedAt: Date }>(
@@ -62,6 +62,63 @@ const activityLogSchema = new Schema<IActivityLog>(
   { _id: true, timestamps: false }
 );
 
+// ─── Reminder Sub-Schema ──────────────────────────────────────────────────────
+const reminderSchema = new Schema<IReminder>(
+  {
+    title: {
+      type: String,
+      trim: true,
+      maxlength: [200, "Title cannot exceed 200 characters"],
+    },
+    note: {
+      type: String,
+      trim: true,
+      maxlength: [1000, "Note cannot exceed 1000 characters"],
+    },
+    remindAt: {
+      type: Date,
+      required: [true, "Reminder date/time is required"],
+    },
+    createdBy: {
+      type: Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+    },
+    isDone: {
+      type: Boolean,
+      default: false,
+    },
+  },
+  { _id: true, timestamps: true }
+);
+
+// ─── Payment Sub-Schema ───────────────────────────────────────────────────────
+const paymentSchema = new Schema<IPayment>(
+  {
+    amount: {
+      type: Number,
+      required: [true, "Payment amount is required"],
+      min: [0, "Amount cannot be negative"],
+    },
+    note: {
+      type: String,
+      trim: true,
+      maxlength: [500, "Note cannot exceed 500 characters"],
+    },
+    paidAt: {
+      type: Date,
+      required: [true, "Payment date is required"],
+      default: Date.now,
+    },
+    addedBy: {
+      type: Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+    },
+  },
+  { _id: true, timestamps: true }
+);
+
 // ─── Lead Schema ──────────────────────────────────────────────────────────────
 const leadSchema = new Schema<ILead>(
   {
@@ -94,7 +151,7 @@ const leadSchema = new Schema<ILead>(
     },
     status: {
       type: String,
-      enum: ["new", "assigned", "followup", "closed", "rejected", "cnc", "booking", "interested"],
+      enum: ["new", "assigned", "followup", "closed", "rejected", "cnc", "booking", "partialbooking", "interested"],
       default: "new",
     },
     assignedTo: {
@@ -114,6 +171,14 @@ const leadSchema = new Schema<ILead>(
     },
     notes: {
       type: [leadNoteSchema],
+      default: [],
+    },
+    reminders: {
+      type: [reminderSchema],
+      default: [],
+    },
+    payments: {
+      type: [paymentSchema],
       default: [],
     },
     activityLogs: {

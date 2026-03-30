@@ -10,6 +10,7 @@
     "build": "bun build src/index.ts --outdir dist --target bun"
   },
   "dependencies": {
+    "@google/generative-ai": "^0.24.1",
     "@types/pdfkit": "^0.17.5",
     "@types/web-push": "^3.6.4",
     "bcryptjs": "^2.4.3",

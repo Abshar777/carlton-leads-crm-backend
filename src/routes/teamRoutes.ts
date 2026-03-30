@@ -17,6 +17,7 @@ import {
   bulkAssignTeamLeadsToMember,
   bulkTransferTeamLeads,
   bulkUpdateTeamLeadsStatus,
+  toggleMemberActive,
 } from "../controllers/teamController.js";
 import { exportTeamPdf } from "../controllers/exportController.js";
 import { authenticate } from "../middleware/auth.js";
@@ -42,12 +43,17 @@ router.get( "/:id/leads",                  checkPermission("leads", "view"), get
 router.get( "/:id/member-stats",           checkPermission("leads", "view"), getTeamMemberStats);
 router.get( "/:id/logs",                   checkPermission("leads", "view"), getTeamLogs);
 router.post("/:id/auto-assign",            checkPermission("leads", "edit"), autoAssignTeamLeads);
-router.patch("/:id/leads/:leadId/assign",  checkPermission("leads", "edit"), assignLeadToMember);
 
-// ── Bulk team-lead operations ─────────────────────────────────────────────────
+// ── Bulk team-lead operations (must come BEFORE /:leadId routes) ──────────────
 router.patch("/:id/leads/bulk/assign",   checkPermission("leads", "edit"), bulkAssignTeamLeadsToMember);
 router.patch("/:id/leads/bulk/transfer", checkPermission("leads", "edit"), bulkTransferTeamLeads);
 router.patch("/:id/leads/bulk/status",   checkPermission("leads", "edit"), bulkUpdateTeamLeadsStatus);
+
+// ── Per-lead operations (parameterized — must come AFTER static /bulk routes) ─
+router.patch("/:id/leads/:leadId/assign",  checkPermission("leads", "edit"), assignLeadToMember);
+
+// ── Member active/inactive toggle (team-scoped, for auto-assignment) ─────────
+router.patch("/:id/members/:memberId/toggle-active", checkPermission("leads", "edit"), toggleMemberActive);
 
 // ── Updates feed & team chat ──────────────────────────────────────────────────
 router.get( "/:id/updates",  checkPermission("leads", "view"),   getTeamUpdates);

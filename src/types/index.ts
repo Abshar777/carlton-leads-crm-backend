@@ -19,10 +19,11 @@ export const CRM_MODULES = [
   "users",
   "roles",
   "leads",
+  "teams",
+  "courses",
+  "reminders",
   "reports",
   "settings",
-  "teams",
-  "courses"
 ] as const;
 
 export type CrmModule = (typeof CRM_MODULES)[number];
@@ -110,6 +111,8 @@ export interface ITeam extends Document {
   leaders: Types.Array<Types.ObjectId | IUser>;
   members: Types.Array<Types.ObjectId | IUser>;
   status: "active" | "inactive";
+  // Members excluded from auto-assignment within this team (team-scoped, not global)
+  inactiveMembers: Types.Array<Types.ObjectId | IUser>;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -133,7 +136,7 @@ export interface ICourse extends Document {
 }
 
 // ─── Lead ──────────────────────────────────────────────────────────────────────
-export type LeadStatus = "new" | "assigned" | "followup" | "closed" | "rejected" | "cnc" | "booking" | "interested";
+export type LeadStatus = "new" | "assigned" | "followup" | "closed" | "rejected" | "cnc" | "booking" | "partialbooking" | "interested";
 
 export type ActivityAction =
   | "lead_created"
@@ -151,6 +154,27 @@ export interface ILeadNote {
   author: Types.ObjectId | IUser;
   createdAt: Date;
   updatedAt: Date;
+}
+
+export interface IPayment {
+  _id: Types.ObjectId;
+  amount: number;
+  note?: string;
+  paidAt: Date;
+  addedBy: Types.ObjectId | IUser;
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
+export interface IReminder {
+  _id: Types.ObjectId;
+  title?: string;
+  note?: string;
+  remindAt: Date;
+  createdBy: Types.ObjectId | IUser;
+  isDone: boolean;
+  createdAt?: Date;
+  updatedAt?: Date;
 }
 
 export interface IActivityLog {
@@ -174,6 +198,8 @@ export interface ILead extends Document {
   team?: Types.ObjectId | ITeam;
   reporter: Types.ObjectId | IUser;
   notes: Types.DocumentArray<ILeadNote & Document>;
+  reminders: Types.DocumentArray<IReminder & Document>;
+  payments: Types.DocumentArray<IPayment & Document>;
   activityLogs: Types.DocumentArray<IActivityLog & Document>;
   createdAt: Date;
   updatedAt: Date;
@@ -203,6 +229,13 @@ export interface LeadStats {
   followup: number;
   closed: number;
   rejected: number;
+  cnc: number;
+  booking: number;
+  partialbooking: number;
+  interested: number;
+  
+  
+  
 }
 
 export interface ParsedLead {

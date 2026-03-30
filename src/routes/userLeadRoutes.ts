@@ -8,7 +8,7 @@ const router = Router({ mergeParams: true });
 // All routes require authentication
 router.use(authenticate);
 
-router.get("/:userId/leads", checkPermission("users", "view"), getLeadsByUser);
+router.get("/:userId/leads", getLeadsByUser);
 router.get("/:userId/lead-stats", getUserLeadStats);
 
 export default router;

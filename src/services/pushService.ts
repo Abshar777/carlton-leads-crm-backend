@@ -48,3 +48,44 @@ export async function sendPushToUser(userId: string, payload: PushPayload): Prom
 export async function sendPushToUsers(userIds: string[], payload: PushPayload): Promise<void> {
   await Promise.allSettled(userIds.map((uid) => sendPushToUser(uid, payload)));
 }
+
+/** Notify a user that a lead was assigned to them. Fire-and-forget. */
+export async function notifyLeadAssignment(
+  assignedUserId: string,
+  leadId: string,
+  leadName: string,
+  emitFn: (userId: string, event: string, payload: object) => void,
+): Promise<void> {
+  const payload = {
+    title: "New Lead Assigned",
+    body: `You have been assigned: ${leadName}`,
+    tag: `lead-assigned-${leadId}`,
+    url: `/leads/${leadId}`,
+    data: { type: "lead_assigned", leadId },
+  };
+  emitFn(assignedUserId, "notification", {
+    ...payload,
+    createdAt: new Date().toISOString(),
+  });
+  await sendPushToUser(assignedUserId, payload);
+}
+
+/** Notify a user about multiple leads assigned to them (bulk). */
+export async function notifyBulkLeadAssignment(
+  assignedUserId: string,
+  count: number,
+  emitFn: (userId: string, event: string, payload: object) => void,
+): Promise<void> {
+  const payload = {
+    title: `${count} Lead${count !== 1 ? "s" : ""} Assigned`,
+    body: `${count} lead${count !== 1 ? "s have" : " has"} been assigned to you`,
+    tag: `bulk-assigned-${assignedUserId}`,
+    url: `/leads`,
+    data: { type: "lead_assigned", count },
+  };
+  emitFn(assignedUserId, "notification", {
+    ...payload,
+    createdAt: new Date().toISOString(),
+  });
+  await sendPushToUser(assignedUserId, payload);
+}
