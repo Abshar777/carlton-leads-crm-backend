@@ -81,7 +81,8 @@ export async function getTeams(
     };
     const isSuperAdmin =
       req.user?.role?.roleName === "Super Admin" ||
-      req.user?.role?.roleName === "Reporter";
+      req.user?.role?.roleName === "Reporter" || 
+      req.user?.role?.roleName === "Team Leader";
     if (!isSuperAdmin) {
       sendError(res, "You are not authorized to get teams", 403);
       return;
