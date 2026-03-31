@@ -18,6 +18,8 @@ import {
   bulkTransferTeamLeads,
   bulkUpdateTeamLeadsStatus,
   toggleMemberActive,
+  getTeamMemberById,
+  getTeamMemberLeads,
 } from "../controllers/teamController.js";
 import { exportTeamPdf } from "../controllers/exportController.js";
 import { authenticate } from "../middleware/auth.js";
@@ -54,6 +56,10 @@ router.patch("/:id/leads/:leadId/assign",  checkPermission("leads", "edit"), ass
 
 // ── Member active/inactive toggle (team-scoped, for auto-assignment) ─────────
 router.patch("/:id/members/:memberId/toggle-active", checkPermission("leads", "edit"), toggleMemberActive);
+
+// ── Member profile + leads (no users permission — access guarded in service) ──
+router.get("/:teamId/members/:memberId",        getTeamMemberById);
+router.get("/:teamId/members/:memberId/leads",  getTeamMemberLeads);
 
 // ── Updates feed & team chat ──────────────────────────────────────────────────
 router.get( "/:id/updates",  checkPermission("leads", "view"),   getTeamUpdates);

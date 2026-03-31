@@ -743,4 +743,150 @@ export class TeamService {
 
     return { logs, pagination: buildPagination(total, page, limit) };
   }
+
+  // ── Get single team member detail (for team leaders) ─────────────────────────
+  async getTeamMemberById(
+    teamId: string,
+    memberId: string,
+    requesterId: string,
+    requesterRole: { isSystemRole?: boolean; roleName?: string },
+  ) {
+    const team = await Team.findById(teamId)
+      .populate("members", "name email designation status")
+      .populate("leaders", "name email designation status");
+
+    if (!team) throw Object.assign(new Error("Team not found"), { statusCode: 404 });
+
+    const leaderIds = (team.leaders as unknown as { _id: { toString(): string } }[])
+      .map((l) => l._id.toString());
+
+    // ── Access check ─────────────────────────────────────────────────────────
+    const isSuperAdmin = requesterRole?.isSystemRole && requesterRole?.roleName === "Super Admin";
+    const isLeaderOfThisTeam = leaderIds.includes(requesterId);
+
+    if (!isSuperAdmin && !isLeaderOfThisTeam) {
+      throw Object.assign(
+        new Error("Access denied: you are not a leader of this team"),
+        { statusCode: 403 },
+      );
+    }
+
+    // ── Verify member belongs to this team ────────────────────────────────────
+    const allMemberIds = [
+      ...(team.members as unknown as { _id: { toString(): string } }[]).map((m) => m._id.toString()),
+      ...leaderIds,
+    ];
+
+    if (!allMemberIds.includes(memberId)) {
+      throw Object.assign(new Error("Member not found in this team"), { statusCode: 404 });
+    }
+
+    // ── Fetch full user record ────────────────────────────────────────────────
+    const member = await User.findById(memberId).populate("role", "roleName").lean();
+    if (!member) throw Object.assign(new Error("User not found"), { statusCode: 404 });
+
+    const uid = new mongoose.Types.ObjectId(memberId);
+
+    // ── Lead stats aggregation for this member inside this team ──────────────
+    const [agg] = await Lead.aggregate([
+      { $match: { team: new mongoose.Types.ObjectId(teamId), assignedTo: uid } },
+      {
+        $group: {
+          _id: null,
+          total:          { $sum: 1 },
+          assigned:       { $sum: { $cond: [{ $eq: ["$status", "assigned"] },       1, 0] } },
+          followup:       { $sum: { $cond: [{ $eq: ["$status", "followup"] },       1, 0] } },
+          closed:         { $sum: { $cond: [{ $eq: ["$status", "closed"] },         1, 0] } },
+          rejected:       { $sum: { $cond: [{ $eq: ["$status", "rejected"] },       1, 0] } },
+          cnc:            { $sum: { $cond: [{ $eq: ["$status", "cnc"] },            1, 0] } },
+          booking:        { $sum: { $cond: [{ $eq: ["$status", "booking"] },        1, 0] } },
+          partialbooking: { $sum: { $cond: [{ $eq: ["$status", "partialbooking"] }, 1, 0] } },
+          interested:     { $sum: { $cond: [{ $eq: ["$status", "interested"] },     1, 0] } },
+          totalPayments:  { $sum: { $sum: "$payments.amount" } },
+        },
+      },
+    ]);
+
+    const stats = agg ?? {
+      total: 0, assigned: 0, followup: 0, closed: 0, rejected: 0,
+      cnc: 0, booking: 0, partialbooking: 0, interested: 0, totalPayments: 0,
+    };
+
+    const closureRate = stats.total > 0 ? Math.round((stats.closed / stats.total) * 100) : 0;
+    const isLeaderOfTeam = leaderIds.includes(memberId);
+
+    return {
+      member: {
+        _id:         (member._id as { toString(): string }).toString(),
+        name:        member.name,
+        email:       member.email,
+        designation: member.designation ?? null,
+        status:      member.status,
+        role:        member.role,
+        createdAt:   (member as unknown as { createdAt?: Date }).createdAt,
+      },
+      team: {
+        _id:  (team._id as { toString(): string }).toString(),
+        name: team.name,
+      },
+      isLeader: isLeaderOfTeam,
+      stats: { ...stats, closureRate },
+    };
+  }
+
+  // ── Get paginated leads for a specific member inside a team ──────────────────
+  async getTeamMemberLeads(
+    teamId: string,
+    memberId: string,
+    requesterId: string,
+    requesterRole: { isSystemRole?: boolean; roleName?: string },
+    filters: { status?: string; search?: string; page?: string; limit?: string },
+  ) {
+    const team = await Team.findById(teamId).lean();
+    if (!team) throw Object.assign(new Error("Team not found"), { statusCode: 404 });
+
+    const leaderIds = (team.leaders as unknown as { toString(): string }[]).map((l) => l.toString());
+
+    const isSuperAdmin = requesterRole?.isSystemRole && requesterRole?.roleName === "Super Admin";
+    const isLeaderOfThisTeam = leaderIds.includes(requesterId);
+    if (!isSuperAdmin && !isLeaderOfThisTeam) {
+      throw Object.assign(new Error("Access denied: you are not a leader of this team"), { statusCode: 403 });
+    }
+
+    const allMemberIds = [
+      ...(team.members as unknown as { toString(): string }[]).map((m) => m.toString()),
+      ...leaderIds,
+    ];
+    if (!allMemberIds.includes(memberId)) {
+      throw Object.assign(new Error("Member not found in this team"), { statusCode: 404 });
+    }
+
+    const page  = Math.max(1, parseInt(filters.page  ?? "1",  10));
+    const limit = Math.min(100, Math.max(1, parseInt(filters.limit ?? "10", 10)));
+    const skip  = (page - 1) * limit;
+
+    const query: Record<string, unknown> = {
+      team:       teamId,
+      assignedTo: memberId,
+    };
+    if (filters.status && filters.status !== "all") query.status = filters.status;
+    if (filters.search) {
+      const regex = new RegExp(filters.search, "i");
+      query.$or = [{ name: regex }, { email: regex }, { phone: regex }];
+    }
+
+    const [leads, total] = await Promise.all([
+      Lead.find(query)
+        .populate("reporter",   "name email")
+        .populate("assignedTo", "name email")
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .select("-activityLogs -notes")
+        .lean(),
+      Lead.countDocuments(query),
+    ]);
+
+    return { leads, pagination: buildPagination(total, page, limit) };
+  }
 }

@@ -457,3 +457,50 @@ export async function toggleMemberActive(
     next(err);
   }
 }
+
+// ─── Get Team Member By ID ────────────────────────────────────────────────────
+export async function getTeamMemberById(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction,
+) {
+  try {
+    const teamId        = req.params.teamId ?? req.params.id;
+    const memberId      = req.params.memberId;
+    const requesterId   = req.user!.userId;
+    const requesterRole = req.user!.role as { isSystemRole?: boolean; roleName?: string };
+
+    const data = await teamService.getTeamMemberById(teamId, memberId, requesterId, requesterRole);
+    sendSuccess(res, "Member fetched successfully", data);
+  } catch (err) {
+    next(err);
+  }
+}
+
+// ─── Get Team Member Leads (paginated, filterable) ────────────────────────────
+export async function getTeamMemberLeads(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction,
+) {
+  try {
+    const teamId        = req.params.teamId;
+    const memberId      = req.params.memberId;
+    const requesterId   = req.user!.userId;
+    const requesterRole = req.user!.role as { isSystemRole?: boolean; roleName?: string };
+
+    const filters = {
+      status: req.query.status as string | undefined,
+      search: req.query.search as string | undefined,
+      page:   req.query.page   as string | undefined,
+      limit:  req.query.limit  as string | undefined,
+    };
+
+    const result = await teamService.getTeamMemberLeads(
+      teamId, memberId, requesterId, requesterRole, filters,
+    );
+    sendSuccess(res, "Member leads fetched successfully", result.leads, 200, result.pagination);
+  } catch (err) {
+    next(err);
+  }
+}
