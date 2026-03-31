@@ -124,9 +124,6 @@ const leadSchema = new Schema<ILead>(
   {
     name: {
       type: String,
-      required: [true, "Name is required"],
-      trim: true,
-      maxlength: [100, "Name cannot exceed 100 characters"],
     },
     email: {
       type: String,

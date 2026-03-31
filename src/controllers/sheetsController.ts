@@ -39,18 +39,35 @@ function cleanPhone(raw: string): string {
   return raw.replace(/^p:/i, "").trim();
 }
 
-/** Map Facebook platform shortcodes to CRM source values */
+/** Map platform shortcodes to CRM source values */
 function mapPlatformToSource(platform?: string): string {
   if (!platform) return "other";
   const p = platform.toLowerCase();
   if (p === "ig" || p === "instagram") return "social";
   if (p === "fb" || p === "facebook")  return "social";
-  if (p === "wa" || p === "whatsapp")  return "other";
+  if (p === "wa" || p === "whatsapp")  return "whatsapp";
+  if (p === "google" || p === "gads" || p === "google ads") return "google";
   return "other";
 }
 
-/** Build the structured note content from extra sheet columns */
+/** Build note for Meta/Facebook Ads rows */
 function buildNote(row: SheetRow): string {
+  const p = (row.platform ?? "").toLowerCase();
+  const isWhatsApp = p === "wa" || p === "whatsapp";
+  const isGoogle   = p === "google" || p === "gads" || p === "google ads";
+
+  if (isWhatsApp || isGoogle) {
+    const label = isWhatsApp ? "WhatsApp" : "Google Ads";
+    const lines: string[] = [
+      `📲 ${label} Lead Import`,
+      "─────────────────────────────",
+    ];
+    if (row.platform)  lines.push(`📱 Platform: ${row.platform}`);
+    if (row.city)      lines.push(`📍 City: ${row.city}`);
+    return lines.join("\n");
+  }
+
+  // Default: Facebook / Instagram Ads
   const lines: string[] = [
     "📊 Facebook Ads Lead Import",
     "─────────────────────────────",
@@ -126,7 +143,7 @@ export const syncSheetLead = async (
 
     // ── Create lead ────────────────────────────────────────────────────────
     const lead = await Lead.create({
-      name:     row.full_name.trim(),
+      name:     row.full_name?.trim()||"no name",
       phone,
       email,
       source:   mapPlatformToSource(row.platform),
@@ -143,7 +160,7 @@ export const syncSheetLead = async (
       activityLogs: [
         {
           action:      "lead_created",
-          description: "Lead imported from Google Sheets (Facebook Ads)",
+          description: `Lead imported from Google Sheets (${mapPlatformToSource(row.platform) === "whatsapp" ? "WhatsApp" : mapPlatformToSource(row.platform) === "google" ? "Google Ads" : "Facebook Ads"})`,
           performedBy: reporterId,
           createdAt:   new Date(),
         },
@@ -259,7 +276,7 @@ export const syncSheetLeadsBatch = async (
         activityLogs: [
           {
             action:      "lead_created",
-            description: "Lead imported from Google Sheets (Facebook Ads)",
+            description: `Lead imported from Google Sheets (${mapPlatformToSource(row.platform) === "whatsapp" ? "WhatsApp" : mapPlatformToSource(row.platform) === "google" ? "Google Ads" : "Facebook Ads"})`,
             performedBy: reporterId,
             createdAt:   new Date(),
           },

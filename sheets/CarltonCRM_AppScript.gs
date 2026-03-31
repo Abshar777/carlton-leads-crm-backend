@@ -3,17 +3,27 @@
  * ════════════════════════════════════════════════════════════════════
  *
  * PURPOSE
- *   Watches the Facebook Lead Ads sheet for new / updated rows and
- *   pushes each row to the Carlton CRM backend as a Lead.
+ *   Watches multiple sheets for new / updated rows and pushes each
+ *   row to the Carlton CRM backend as a Lead.
  *
- * SHEET COLUMNS (must match this exact order in row 1):
+ * SUPPORTED SHEETS
+ *
+ *   Sheet "Meta"  (Facebook / Instagram Ads)
+ *   ─────────────────────────────────────────
  *   A  id            B  created_time   C  ad_id
  *   D  ad_name       E  adset_id       F  adset_name
  *   G  campaign_id   H  campaign_name  I  form_id
  *   J  form_name     K  is_organic     L  platform
  *   M  full_name     N  phone_number   O  email
  *   P  city          Q  lead_status
- *   R  CRM Sync      ← Added automatically by this script
+ *   R  CRM Sync      ← written by this script
+ *
+ *   Sheet "G ads & WhatsApp"  (WhatsApp / Google Ads)
+ *   ─────────────────────────────────────────────────
+ *   A  Name (full_name)
+ *   B  Number (phone_number)
+ *   C  Platform  (e.g. "WhatsApp", "Google")
+ *   R  CRM Sync  ← written by this script (col 18)
  *
  * SETUP (do once)
  *   1. Open the sheet → Extensions → Apps Script → paste this file.
@@ -22,8 +32,7 @@
  *   4. Authorize when prompted.
  *
  * TRIGGERS installed by setupTriggers():
- *   • onChange  → fires when the sheet content changes (new rows added
- *                 by Facebook Lead Ads integration or manually)
+ *   • onChange  → fires when the sheet content changes
  *   • Time-based (every 30 min) → safety net for missed changes
  * ════════════════════════════════════════════════════════════════════
  */
@@ -36,9 +45,15 @@ var CRM_API_URL = "https://your-crm-domain.com/api";
 /** Must match SHEETS_API_KEY in your backend .env */
 var SHEETS_API_KEY = "carlton_sheets_key_change_in_production_2024";
 
-// ─── Column indices (0-based, matching the sheet order above) ────────────────
+// ─── Sheet names ──────────────────────────────────────────────────────────────
 
-var COL = {
+var SHEET_META      = "Meta";
+var SHEET_WHATSAPP  = "G ads & WhatsApp";
+
+// ─── Column mappings (0-based) ────────────────────────────────────────────────
+
+/** Meta sheet — Facebook / Instagram Ads */
+var META_COL = {
   ID:            0,   // A
   CREATED_TIME:  1,   // B
   AD_ID:         2,   // C
@@ -56,7 +71,15 @@ var COL = {
   EMAIL:         14,  // O
   CITY:          15,  // P
   LEAD_STATUS:   16,  // Q
-  CRM_SYNC:      17,  // R  ← written by this script
+  CRM_SYNC:      17,  // R
+};
+
+/** G ads & WhatsApp sheet */
+var WA_COL = {
+  FULL_NAME:    0,   // A  (Name)
+  PHONE_NUMBER: 1,   // B  (Number)
+  PLATFORM:     2,   // C  (Platform)
+  CRM_SYNC:     17,  // R  (same column position as Meta)
 };
 
 var SYNC_STATUS = {
@@ -71,7 +94,7 @@ var SYNC_STATUS = {
 
 /**
  * Called automatically by the onChange trigger.
- * Processes all rows that haven't been synced yet.
+ * Processes pending rows in ALL supported sheets.
  */
 function onSheetChange(e) {
   try {
@@ -83,7 +106,6 @@ function onSheetChange(e) {
 
 /**
  * Called by the time-based trigger (every 30 min).
- * Same as onSheetChange — ensures nothing is missed.
  */
 function scheduledSync() {
   try {
@@ -94,105 +116,128 @@ function scheduledSync() {
 }
 
 /**
- * Manually sync ALL rows regardless of sync status.
- * Run this once from the Run menu to do a full historical import.
+ * Manually sync ALL rows in ALL supported sheets regardless of sync status.
  */
 function syncAllRows() {
-  var sheet    = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
-  var lastRow  = sheet.getLastRow();
-
-  if (lastRow < 2) {
-    Logger.log("No data rows found.");
-    return;
-  }
-
-  ensureSyncColumn(sheet);
-
-  var data  = sheet.getDataRange().getValues();
-  var batch = [];
-
-  for (var i = 1; i < data.length; i++) {
-    var row = data[i];
-    if (!String(row[COL.FULL_NAME]).trim() || !String(row[COL.PHONE_NUMBER]).trim()) {
-      continue; // skip empty rows
-    }
-    batch.push({ rowIndex: i + 1, data: buildRowPayload(row) });
-  }
-
-  if (batch.length === 0) {
-    Logger.log("No valid rows to sync.");
-    return;
-  }
-
-  processBatch(sheet, batch);
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  syncAllRowsInSheet(ss, SHEET_META);
+  syncAllRowsInSheet(ss, SHEET_WHATSAPP);
 }
 
 // ─── Core sync logic ──────────────────────────────────────────────────────────
 
 /**
- * Finds rows where CRM Sync column is blank or PENDING, then syncs them.
+ * Finds and syncs pending rows across all supported sheets.
  */
 function syncPendingRows() {
-  var sheet    = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
-  var lastRow  = sheet.getLastRow();
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  syncPendingInSheet(ss, SHEET_META);
+  syncPendingInSheet(ss, SHEET_WHATSAPP);
+}
 
-  if (lastRow < 2) return;
-
-  ensureSyncColumn(sheet);
-
-  var data     = sheet.getDataRange().getValues();
-  var batch    = [];
-
-  for (var i = 1; i < data.length; i++) {
-    var row        = data[i];
-    var syncStatus = String(row[COL.CRM_SYNC] || "").trim();
-    var name       = String(row[COL.FULL_NAME] || "").trim();
-    var phone      = String(row[COL.PHONE_NUMBER] || "").trim();
-
-    // Skip rows that are already synced or have no data
-    if (!name || !phone) continue;
-    if (syncStatus === SYNC_STATUS.SYNCED || syncStatus === SYNC_STATUS.DUPLICATE) continue;
-
-    batch.push({ rowIndex: i + 1, data: buildRowPayload(row) });
-  }
-
-  if (batch.length === 0) {
-    Logger.log("All rows already synced.");
+/**
+ * Syncs pending rows for a specific sheet by name.
+ * Silently skips if the sheet doesn't exist.
+ */
+function syncPendingInSheet(ss, sheetName) {
+  var sheet = ss.getSheetByName(sheetName);
+  if (!sheet) {
+    Logger.log("Sheet not found, skipping: " + sheetName);
     return;
   }
 
-  Logger.log("Syncing " + batch.length + " pending row(s)...");
-  processBatch(sheet, batch);
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) return;
+
+  ensureSyncColumn(sheet, getCrmSyncCol(sheetName));
+
+  var data  = sheet.getDataRange().getValues();
+  var batch = [];
+  var syncColIdx = getCrmSyncCol(sheetName);
+
+  for (var i = 1; i < data.length; i++) {
+    var row        = data[i];
+    var syncStatus = String(row[syncColIdx] || "").trim();
+    var nameVal    = String(row[getNameCol(sheetName)] || "").trim();
+    var phoneVal   = String(row[getPhoneCol(sheetName)] || "").trim();
+
+    if (!nameVal || !phoneVal) continue;
+    if (syncStatus === SYNC_STATUS.SYNCED || syncStatus === SYNC_STATUS.DUPLICATE) continue;
+
+    batch.push({ rowIndex: i + 1, data: buildPayload(row, sheetName) });
+  }
+
+  if (batch.length === 0) {
+    Logger.log("[" + sheetName + "] All rows already synced.");
+    return;
+  }
+
+  Logger.log("[" + sheetName + "] Syncing " + batch.length + " pending row(s)...");
+  processBatch(sheet, batch, syncColIdx);
+}
+
+/**
+ * Syncs ALL rows for a specific sheet (full import / re-sync).
+ */
+function syncAllRowsInSheet(ss, sheetName) {
+  var sheet = ss.getSheetByName(sheetName);
+  if (!sheet) return;
+
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) {
+    Logger.log("[" + sheetName + "] No data rows found.");
+    return;
+  }
+
+  var syncColIdx = getCrmSyncCol(sheetName);
+  ensureSyncColumn(sheet, syncColIdx);
+
+  var data  = sheet.getDataRange().getValues();
+  var batch = [];
+
+  for (var i = 1; i < data.length; i++) {
+    var row      = data[i];
+    var nameVal  = String(row[getNameCol(sheetName)] || "").trim();
+    var phoneVal = String(row[getPhoneCol(sheetName)] || "").trim();
+    if (!nameVal || !phoneVal) continue;
+    batch.push({ rowIndex: i + 1, data: buildPayload(row, sheetName) });
+  }
+
+  if (batch.length === 0) {
+    Logger.log("[" + sheetName + "] No valid rows to sync.");
+    return;
+  }
+
+  processBatch(sheet, batch, syncColIdx);
 }
 
 /**
  * Sends a batch of rows to the CRM batch endpoint.
  * Falls back to individual sync if batch fails.
  */
-function processBatch(sheet, batch) {
-  var rows = batch.map(function(item) { return item.data; });
-
+function processBatch(sheet, batch, syncColIdx) {
+  var rows     = batch.map(function(item) { return item.data; });
   var response = callApi("/sheets/sync/batch", { rows: rows });
 
   if (response && response.success && response.data && response.data.results) {
     var results = response.data.results;
 
     for (var i = 0; i < results.length; i++) {
-      var result    = results[i];
-      var rowIndex  = batch[result.index].rowIndex;
-      var syncCell  = sheet.getRange(rowIndex, COL.CRM_SYNC + 1);
+      var result   = results[i];
+      var rowIndex = batch[result.index].rowIndex;
+      var syncCell = sheet.getRange(rowIndex, syncColIdx + 1);
 
       if (result.status === "created") {
         syncCell.setValue(SYNC_STATUS.SYNCED);
-        syncCell.setBackground("#d9ead3");  // light green
+        syncCell.setBackground("#d9ead3");
         syncCell.setNote("CRM Lead ID: " + result.leadId + "\nSynced at: " + new Date().toISOString());
       } else if (result.status === "duplicate") {
         syncCell.setValue(SYNC_STATUS.DUPLICATE);
-        syncCell.setBackground("#fff2cc");  // light yellow
+        syncCell.setBackground("#fff2cc");
         syncCell.setNote("Already exists in CRM\nLead ID: " + result.leadId);
       } else if (result.status === "invalid") {
         syncCell.setValue(SYNC_STATUS.ERROR);
-        syncCell.setBackground("#f4cccc");  // light red
+        syncCell.setBackground("#f4cccc");
         syncCell.setNote("Validation error:\n" + (result.reason || "Unknown"));
       }
     }
@@ -203,10 +248,9 @@ function processBatch(sheet, batch) {
       ", invalid: " + response.data.summary.invalid
     );
   } else {
-    // Batch call failed — fall back to row-by-row
     Logger.log("Batch call failed, falling back to individual sync...");
     for (var j = 0; j < batch.length; j++) {
-      syncSingleRow(sheet, batch[j].rowIndex, batch[j].data);
+      syncSingleRow(sheet, batch[j].rowIndex, batch[j].data, syncColIdx);
     }
   }
 }
@@ -214,8 +258,8 @@ function processBatch(sheet, batch) {
 /**
  * Syncs one row individually (fallback when batch fails).
  */
-function syncSingleRow(sheet, rowIndex, payload) {
-  var syncCell = sheet.getRange(rowIndex, COL.CRM_SYNC + 1);
+function syncSingleRow(sheet, rowIndex, payload, syncColIdx) {
+  var syncCell = sheet.getRange(rowIndex, syncColIdx + 1);
   syncCell.setValue(SYNC_STATUS.PENDING);
 
   var response = callApi("/sheets/sync", payload);
@@ -244,32 +288,73 @@ function syncSingleRow(sheet, rowIndex, payload) {
   }
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// ─── Payload builders ─────────────────────────────────────────────────────────
 
 /**
- * Builds the JSON payload object from a sheet row array.
+ * Builds the JSON payload for a row based on which sheet it came from.
  */
-function buildRowPayload(row) {
+function buildPayload(row, sheetName) {
+  if (sheetName === SHEET_WHATSAPP) {
+    return buildWhatsAppPayload(row);
+  }
+  return buildMetaPayload(row);
+}
+
+/**
+ * Payload for Meta / Facebook Ads sheet rows.
+ */
+function buildMetaPayload(row) {
   return {
-    id:            String(row[COL.ID]            || "").trim() || undefined,
-    created_time:  String(row[COL.CREATED_TIME]  || "").trim() || undefined,
-    ad_id:         String(row[COL.AD_ID]         || "").trim() || undefined,
-    ad_name:       String(row[COL.AD_NAME]       || "").trim() || undefined,
-    adset_id:      String(row[COL.ADSET_ID]      || "").trim() || undefined,
-    adset_name:    String(row[COL.ADSET_NAME]    || "").trim() || undefined,
-    campaign_id:   String(row[COL.CAMPAIGN_ID]   || "").trim() || undefined,
-    campaign_name: String(row[COL.CAMPAIGN_NAME] || "").trim() || undefined,
-    form_id:       String(row[COL.FORM_ID]       || "").trim() || undefined,
-    form_name:     String(row[COL.FORM_NAME]     || "").trim() || undefined,
-    is_organic:    String(row[COL.IS_ORGANIC]    || "").trim() || undefined,
-    platform:      String(row[COL.PLATFORM]      || "").trim() || undefined,
-    full_name:     String(row[COL.FULL_NAME]     || "").trim(),
-    phone_number:  String(row[COL.PHONE_NUMBER]  || "").trim(),
-    email:         String(row[COL.EMAIL]         || "").trim() || undefined,
-    city:          String(row[COL.CITY]          || "").trim() || undefined,
-    lead_status:   String(row[COL.LEAD_STATUS]   || "").trim() || undefined,
+    id:            String(row[META_COL.ID]            || "").trim() || undefined,
+    created_time:  String(row[META_COL.CREATED_TIME]  || "").trim() || undefined,
+    ad_id:         String(row[META_COL.AD_ID]         || "").trim() || undefined,
+    ad_name:       String(row[META_COL.AD_NAME]       || "").trim() || undefined,
+    adset_id:      String(row[META_COL.ADSET_ID]      || "").trim() || undefined,
+    adset_name:    String(row[META_COL.ADSET_NAME]    || "").trim() || undefined,
+    campaign_id:   String(row[META_COL.CAMPAIGN_ID]   || "").trim() || undefined,
+    campaign_name: String(row[META_COL.CAMPAIGN_NAME] || "").trim() || undefined,
+    form_id:       String(row[META_COL.FORM_ID]       || "").trim() || undefined,
+    form_name:     String(row[META_COL.FORM_NAME]     || "").trim() || undefined,
+    is_organic:    String(row[META_COL.IS_ORGANIC]    || "").trim() || undefined,
+    platform:      String(row[META_COL.PLATFORM]      || "").trim() || undefined,
+    full_name:     String(row[META_COL.FULL_NAME]     || "").trim(),
+    phone_number:  String(row[META_COL.PHONE_NUMBER]  || "").trim(),
+    email:         String(row[META_COL.EMAIL]         || "").trim() || undefined,
+    city:          String(row[META_COL.CITY]          || "").trim() || undefined,
+    lead_status:   String(row[META_COL.LEAD_STATUS]   || "").trim() || undefined,
   };
 }
+
+/**
+ * Payload for G ads & WhatsApp sheet rows.
+ */
+function buildWhatsAppPayload(row) {
+  var platform = String(row[WA_COL.PLATFORM] || "WhatsApp").trim();
+  return {
+    full_name:    String(row[WA_COL.FULL_NAME]    || "").trim(),
+    phone_number: String(row[WA_COL.PHONE_NUMBER] || "").trim(),
+    platform:     platform,
+  };
+}
+
+// ─── Column index helpers ─────────────────────────────────────────────────────
+
+function getCrmSyncCol(sheetName) {
+  if (sheetName === SHEET_WHATSAPP) return WA_COL.CRM_SYNC;
+  return META_COL.CRM_SYNC;
+}
+
+function getNameCol(sheetName) {
+  if (sheetName === SHEET_WHATSAPP) return WA_COL.FULL_NAME;
+  return META_COL.FULL_NAME;
+}
+
+function getPhoneCol(sheetName) {
+  if (sheetName === SHEET_WHATSAPP) return WA_COL.PHONE_NUMBER;
+  return META_COL.PHONE_NUMBER;
+}
+
+// ─── API helper ───────────────────────────────────────────────────────────────
 
 /**
  * Makes an authenticated POST request to the CRM API.
@@ -301,16 +386,16 @@ function callApi(path, payload) {
 }
 
 /**
- * Ensures column R has the header "CRM Sync".
+ * Ensures the CRM Sync column has a header.
  * Safe to call repeatedly — only writes if the cell is empty.
  */
-function ensureSyncColumn(sheet) {
-  var headerCell = sheet.getRange(1, COL.CRM_SYNC + 1);
+function ensureSyncColumn(sheet, syncColIdx) {
+  var headerCell = sheet.getRange(1, syncColIdx + 1);
   if (!headerCell.getValue()) {
     headerCell.setValue("CRM Sync");
     headerCell.setFontWeight("bold");
     headerCell.setBackground("#cfe2f3");
-    sheet.setColumnWidth(COL.CRM_SYNC + 1, 140);
+    sheet.setColumnWidth(syncColIdx + 1, 140);
   }
 }
 
@@ -342,7 +427,12 @@ function setupTriggers() {
     .create();
 
   Logger.log("✅ Triggers installed: onChange + every 30 minutes");
-  SpreadsheetApp.getUi().alert("✅ Triggers installed successfully!\n\nonChange: fires when rows are added\nScheduled: every 30 minutes\n\nThe script will now auto-sync new leads to Carlton CRM.");
+  SpreadsheetApp.getUi().alert(
+    "✅ Triggers installed successfully!\n\n" +
+    "onChange: fires when rows are added\n" +
+    "Scheduled: every 30 minutes\n\n" +
+    "Watching sheets:\n• " + SHEET_META + "\n• " + SHEET_WHATSAPP
+  );
 }
 
 /**
@@ -363,11 +453,7 @@ function testConnection() {
   var testPayload = {
     full_name:    "Test Lead",
     phone_number: "0000000000",
-    email:        "test@carltoncrm.test",
-    platform:     "ig",
-    city:         "Test City",
-    campaign_name:"Test Campaign",
-    lead_status:  "TEST",
+    platform:     "WhatsApp",
   };
 
   var response = callApi("/sheets/sync", testPayload);
@@ -393,11 +479,11 @@ function testConnection() {
 function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu("🚀 Carlton CRM")
-    .addItem("Sync pending rows", "syncPendingRows")
-    .addItem("Sync ALL rows (full import)", "syncAllRows")
+    .addItem("Sync pending rows (all sheets)", "syncPendingRows")
+    .addItem("Sync ALL rows — full import",    "syncAllRows")
     .addSeparator()
-    .addItem("Test connection", "testConnection")
-    .addItem("Setup triggers", "setupTriggers")
-    .addItem("Remove triggers", "removeTriggers")
+    .addItem("Test connection",  "testConnection")
+    .addItem("Setup triggers",   "setupTriggers")
+    .addItem("Remove triggers",  "removeTriggers")
     .addToUi();
 }
