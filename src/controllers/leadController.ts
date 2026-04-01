@@ -592,10 +592,25 @@ export const transferLeadToTeam = async (
 
 // ─── Reminder Controllers ─────────────────────────────────────────────────────
 
+const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000; // UTC+5:30
+
 const reminderSchema = z.object({
   title:    z.string().max(200).optional(),
   note:     z.string().max(1000).optional(),
-  remindAt: z.string().min(1, "remindAt is required"),
+  remindAt: z
+    .string()
+    .min(1, "remindAt is required")
+    .refine((val) => {
+      const d = new Date(val);
+      return !isNaN(d.getTime());
+    }, "Invalid date/time format")
+    .refine((val) => {
+      const d = new Date(val);
+      // Allow a 60-second grace window so a reminder set "right now" isn't
+      // rejected due to slight clock drift between client and server.
+      const nowIST = new Date(Date.now() - IST_OFFSET_MS);
+      return d.getTime() > nowIST.getTime() - 60_000;
+    }, "Reminder time must be in the future (IST)"),
   isDone:   z.boolean().optional(),
 });
 
