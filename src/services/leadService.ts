@@ -531,10 +531,11 @@ export class LeadService {
         },
       ],
     }));
-
+    console.log(leadsWithReporter);
     const created = await Lead.insertMany(leadsWithReporter, {
       ordered: false,
     });
+    console.log(created);
     return created;
   }
 
