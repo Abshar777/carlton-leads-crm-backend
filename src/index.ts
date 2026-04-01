@@ -9,6 +9,7 @@ import { env } from "./config/env.js";
 import routes from "./routes/index.js";
 import { errorHandler, notFound } from "./middleware/errorHandler.js";
 import { initSocket } from "./socket.js";
+import { startReminderScheduler } from "./services/reminderScheduler.js";
 
 const app = express();
 
@@ -44,6 +45,8 @@ const start = async () => {
   httpServer.listen(env.PORT, () => {
     console.log(`🚀 Server running on http://localhost:${env.PORT} [${env.NODE_ENV}]`);
     console.log(`📋 API Base: http://localhost:${env.PORT}/api/v1`);
+    // Start after server is listening so Socket.IO is ready for emitToUser
+    startReminderScheduler();
   });
 };
 

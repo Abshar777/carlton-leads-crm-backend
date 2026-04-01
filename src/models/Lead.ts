@@ -88,6 +88,16 @@ const reminderSchema = new Schema<IReminder>(
       type: Boolean,
       default: false,
     },
+    // Stamped by the server scheduler once the on-time push is sent
+    notifiedAt: {
+      type: Date,
+      default: null,
+    },
+    // Stamped by the server scheduler once the 30-min warning push is sent
+    warnedAt: {
+      type: Date,
+      default: null,
+    },
   },
   { _id: true, timestamps: true }
 );

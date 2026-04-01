@@ -243,8 +243,10 @@ export class TeamService {
       (team.leaders as unknown as { _id: { toString(): string } }[]).map((l) => l._id.toString()),
     );
     // Also exclude members marked inactive for auto-assignment in this team
+    // inactiveMembers is populated with "_id" so we must extract ._id, not call
+    // .toString() on the whole document (which would yield "[object Object]").
     const inactiveMemberIds = new Set(
-      (team.inactiveMembers as unknown as { toString(): string }[]).map((m) => m.toString()),
+      (team.inactiveMembers as unknown as { _id: { toString(): string } }[]).map((m) => m._id.toString()),
     );
     const membersList = (team.members as unknown as Array<{ _id: { toString(): string }; name: string }>)
       .filter((m) => !leaderIds.has(m._id.toString()) && !inactiveMemberIds.has(m._id.toString()));

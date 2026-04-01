@@ -173,6 +173,10 @@ export interface IReminder {
   remindAt: Date;
   createdBy: Types.ObjectId | IUser;
   isDone: boolean;
+  /** Set when the server sends the on-time push/socket notification */
+  notifiedAt?: Date;
+  /** Set when the server sends the 30-min advance-warning notification */
+  warnedAt?: Date;
   createdAt?: Date;
   updatedAt?: Date;
 }

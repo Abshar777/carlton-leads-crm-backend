@@ -7,7 +7,10 @@
     "dev": "bun --watch src/index.ts",
     "start": "bun src/index.ts",
     "seed": "bun src/seeds/superAdmin.ts",
-    "build": "bun build src/index.ts --outdir dist --target bun"
+    "build": "bun build src/index.ts --outdir dist --target bun",
+    "test": "bun test tests/ --timeout 15000",
+    "test:teams": "bun test tests/teams/ --timeout 15000",
+    "test:verbose": "bun test tests/ --timeout 15000 --reporter=verbose"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
