@@ -1,3 +1,4 @@
+import mongoose from "mongoose";
 import { Lead } from "../models/Lead.js";
 import { Team } from "../models/Team.js";
 import { User } from "../models/User.js";
@@ -372,7 +373,446 @@ export class ReportService {
     return { teams, timeline, summary };
   }
 
-  // ── 6. Status breakdown by period (for comparing periods) ────────────────────
+  // ── Revenue helpers ──────────────────────────────────────────────────────────
+
+  /** Build a match filter on payments.paidAt (used after $unwind: "$payments") */
+  private buildPaymentDateFilter(dateFrom?: string, dateTo?: string): Record<string, unknown> {
+    if (!dateFrom && !dateTo) return {};
+    const f: { $gte?: Date; $lte?: Date } = {};
+    if (dateFrom) f.$gte = new Date(dateFrom + "T00:00:00.000Z");
+    if (dateTo)   f.$lte = new Date(dateTo   + "T23:59:59.999Z");
+    return { "payments.paidAt": f };
+  }
+
+  // ── 6. Revenue overview ───────────────────────────────────────────────────────
+
+  async getRevenueOverview(dateFrom?: string, dateTo?: string) {
+    const paymentMatch = this.buildPaymentDateFilter(dateFrom, dateTo);
+
+    const [summaryAgg, teamAgg, agentAgg] = await Promise.all([
+      // ── total revenue / payment count / paying leads
+      Lead.aggregate([
+        { $unwind: "$payments" },
+        { $match: paymentMatch },
+        {
+          $group: {
+            _id:          null,
+            totalRevenue: { $sum: "$payments.amount" },
+            paymentCount: { $sum: 1 },
+            leadIds:      { $addToSet: "$_id" },
+          },
+        },
+      ]),
+
+      // ── top teams by revenue
+      Lead.aggregate([
+        { $unwind: "$payments" },
+        { $match: paymentMatch },
+        {
+          $group: {
+            _id:          "$team",
+            revenue:      { $sum: "$payments.amount" },
+            paymentCount: { $sum: 1 },
+          },
+        },
+        { $sort: { revenue: -1 } },
+        { $limit: 10 },
+        {
+          $lookup: {
+            from: "teams", localField: "_id", foreignField: "_id", as: "teamInfo",
+          },
+        },
+        { $unwind: { path: "$teamInfo", preserveNullAndEmptyArrays: true } },
+        {
+          $project: {
+            teamId:       "$_id",
+            name:         { $ifNull: ["$teamInfo.name", "Unassigned"] },
+            revenue:      1,
+            paymentCount: 1,
+          },
+        },
+      ]),
+
+      // ── top agents by revenue (attributed to lead's assignedTo)
+      Lead.aggregate([
+        { $unwind: "$payments" },
+        { $match: paymentMatch },
+        {
+          $group: {
+            _id:          "$assignedTo",
+            revenue:      { $sum: "$payments.amount" },
+            paymentCount: { $sum: 1 },
+          },
+        },
+        { $sort: { revenue: -1 } },
+        { $limit: 15 },
+        {
+          $lookup: {
+            from: "users", localField: "_id", foreignField: "_id", as: "userInfo",
+          },
+        },
+        { $unwind: { path: "$userInfo", preserveNullAndEmptyArrays: false } },
+        {
+          $project: {
+            userId:       "$_id",
+            name:         "$userInfo.name",
+            email:        "$userInfo.email",
+            designation:  "$userInfo.designation",
+            revenue:      1,
+            paymentCount: 1,
+          },
+        },
+      ]),
+    ]);
+
+    const summary        = summaryAgg[0] ?? { totalRevenue: 0, paymentCount: 0, leadIds: [] };
+    const totalRevenue   = summary.totalRevenue   as number ?? 0;
+    const paymentCount   = summary.paymentCount   as number ?? 0;
+    const payingLeadCount = (summary.leadIds as unknown[])?.length ?? 0;
+    const avgRevenuePerLead = payingLeadCount > 0
+      ? +((totalRevenue / payingLeadCount).toFixed(2))
+      : 0;
+
+    const topTeam  = teamAgg[0]  ? { name: teamAgg[0].name  as string, revenue: teamAgg[0].revenue  as number } : null;
+    const topAgent = agentAgg[0] ? { name: agentAgg[0].name as string, revenue: agentAgg[0].revenue as number, designation: agentAgg[0].designation as string | undefined } : null;
+
+    return {
+      totalRevenue,
+      payingLeadCount,
+      paymentCount,
+      avgRevenuePerLead,
+      topTeam,
+      topAgent,
+      teamBreakdown:  teamAgg.map((t, i)  => ({ ...t, rank: i + 1 })),
+      agentBreakdown: agentAgg.map((a, i) => ({ ...a, rank: i + 1 })),
+    };
+  }
+
+  // ── 7. Revenue timeline (per team, per time bucket) ───────────────────────────
+
+  async getRevenueTimeline(
+    period: "daily" | "weekly" | "monthly" | "yearly",
+    dateFrom?: string,
+    dateTo?: string,
+  ) {
+    const paymentMatch = this.buildPaymentDateFilter(dateFrom, dateTo);
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let bucketId: any;
+    if (period === "daily") {
+      bucketId = { $dateToString: { format: "%Y-%m-%d", date: "$payments.paidAt" } };
+    } else if (period === "weekly") {
+      bucketId = { year: { $isoWeekYear: "$payments.paidAt" }, week: { $isoWeek: "$payments.paidAt" } };
+    } else if (period === "monthly") {
+      bucketId = { year: { $year: "$payments.paidAt" }, month: { $month: "$payments.paidAt" } };
+    } else {
+      bucketId = { year: { $year: "$payments.paidAt" } };
+    }
+
+    const agg = await Lead.aggregate([
+      { $unwind: "$payments" },
+      { $match: paymentMatch },
+      {
+        $group: {
+          _id:     { bucket: bucketId, team: "$team" },
+          revenue: { $sum: "$payments.amount" },
+        },
+      },
+      { $sort: { "_id.bucket": 1 } },
+      {
+        $lookup: {
+          from: "teams", localField: "_id.team", foreignField: "_id", as: "teamInfo",
+        },
+      },
+      { $unwind: { path: "$teamInfo", preserveNullAndEmptyArrays: true } },
+      {
+        $project: {
+          bucket:   "$_id.bucket",
+          teamName: { $ifNull: ["$teamInfo.name", "Unassigned"] },
+          revenue:  1,
+        },
+      },
+    ]);
+
+    const MONTHS = ["","Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+    const teamSet   = new Set<string>();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const bucketMap = new Map<string, Record<string, any>>();
+
+    for (const row of agg) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const b = row.bucket as any;
+      let label: string;
+      if (typeof b === "string") {
+        label = b;
+      } else if (b?.week !== undefined) {
+        label = `W${b.week as number} '${String(b.year as number).slice(2)}`;
+      } else if (b?.month !== undefined) {
+        label = `${MONTHS[b.month as number]} '${String(b.year as number).slice(2)}`;
+      } else {
+        label = String(b?.year ?? "—");
+      }
+
+      const teamName = row.teamName as string;
+      teamSet.add(teamName);
+
+      if (!bucketMap.has(label)) bucketMap.set(label, { label, total: 0 });
+      const bucket = bucketMap.get(label)!;
+      bucket[teamName] = ((bucket[teamName] as number) ?? 0) + (row.revenue as number);
+      bucket.total     = ((bucket.total    as number) ?? 0) + (row.revenue as number);
+    }
+
+    return {
+      teams:    Array.from(teamSet),
+      timeline: Array.from(bucketMap.values()),
+    };
+  }
+
+  // ── 8. Revenue teams with member breakdown ───────────────────────────────────
+
+  async getRevenueTeams(dateFrom?: string, dateTo?: string) {
+    const paymentMatch = this.buildPaymentDateFilter(dateFrom, dateTo);
+
+    const agg = await Lead.aggregate([
+      { $unwind: "$payments" },
+      { $match: paymentMatch },
+      // ① group by (team × member)
+      {
+        $group: {
+          _id:          { team: "$team", member: "$assignedTo" },
+          revenue:      { $sum: "$payments.amount" },
+          paymentCount: { $sum: 1 },
+          leadIds:      { $addToSet: "$_id" },
+        },
+      },
+      // ② look up user info for each member
+      {
+        $lookup: {
+          from: "users", localField: "_id.member", foreignField: "_id", as: "userInfo",
+        },
+      },
+      { $unwind: { path: "$userInfo", preserveNullAndEmptyArrays: true } },
+      // ③ group by team to collect member array
+      {
+        $group: {
+          _id:              "$_id.team",
+          teamRevenue:      { $sum: "$revenue" },
+          teamPaymentCount: { $sum: "$paymentCount" },
+          teamLeadCount:    { $sum: { $size: "$leadIds" } },
+          members: {
+            $push: {
+              userId:       "$_id.member",
+              name:         { $ifNull: ["$userInfo.name", "Unassigned"] },
+              designation:  "$userInfo.designation",
+              revenue:      "$revenue",
+              paymentCount: "$paymentCount",
+              leadCount:    { $size: "$leadIds" },
+            },
+          },
+        },
+      },
+      { $sort: { teamRevenue: -1 } },
+      // ④ look up team info
+      {
+        $lookup: {
+          from: "teams", localField: "_id", foreignField: "_id", as: "teamInfo",
+        },
+      },
+      { $unwind: { path: "$teamInfo", preserveNullAndEmptyArrays: true } },
+      {
+        $project: {
+          teamId:       "$_id",
+          name:         { $ifNull: ["$teamInfo.name", "Unassigned"] },
+          revenue:      "$teamRevenue",
+          paymentCount: "$teamPaymentCount",
+          leadCount:    "$teamLeadCount",
+          members:      1,
+        },
+      },
+    ]);
+
+    // Sort members desc + add pct of team revenue
+    return agg.map((team, i) => ({
+      ...team,
+      rank: i + 1,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      members: (team.members as any[])
+        .sort((a, b) => (b.revenue as number) - (a.revenue as number))
+        .map((m) => ({
+          ...m,
+          pct: (team.revenue as number) > 0
+            ? +(((m.revenue as number) / (team.revenue as number)) * 100).toFixed(1)
+            : 0,
+        })),
+    }));
+  }
+
+  // ── 9. Team-scoped revenue overview (KPIs + member breakdown) ────────────────
+
+  async getTeamRevenue(teamId: string, dateFrom?: string, dateTo?: string) {
+    const teamOid      = new mongoose.Types.ObjectId(teamId);
+    const paymentMatch = this.buildPaymentDateFilter(dateFrom, dateTo);
+    const teamFilter   = { team: teamOid };
+
+    const [summaryAgg, memberAgg] = await Promise.all([
+      Lead.aggregate([
+        { $match: teamFilter },
+        { $unwind: "$payments" },
+        { $match: paymentMatch },
+        {
+          $group: {
+            _id:          null,
+            totalRevenue: { $sum: "$payments.amount" },
+            paymentCount: { $sum: 1 },
+            leadIds:      { $addToSet: "$_id" },
+          },
+        },
+      ]),
+
+      Lead.aggregate([
+        { $match: teamFilter },
+        { $unwind: "$payments" },
+        { $match: paymentMatch },
+        {
+          $group: {
+            _id:          "$assignedTo",
+            revenue:      { $sum: "$payments.amount" },
+            paymentCount: { $sum: 1 },
+            leadIds:      { $addToSet: "$_id" },
+          },
+        },
+        { $sort: { revenue: -1 } },
+        {
+          $lookup: {
+            from: "users", localField: "_id", foreignField: "_id", as: "userInfo",
+          },
+        },
+        { $unwind: { path: "$userInfo", preserveNullAndEmptyArrays: true } },
+        {
+          $project: {
+            userId:       "$_id",
+            name:         { $ifNull: ["$userInfo.name", "Unassigned"] },
+            designation:  "$userInfo.designation",
+            revenue:      1,
+            paymentCount: 1,
+            leadCount:    { $size: "$leadIds" },
+          },
+        },
+      ]),
+    ]);
+
+    const summary         = summaryAgg[0] ?? { totalRevenue: 0, paymentCount: 0, leadIds: [] };
+    const totalRevenue    = summary.totalRevenue   as number ?? 0;
+    const paymentCount    = summary.paymentCount   as number ?? 0;
+    const payingLeadCount = (summary.leadIds as unknown[])?.length ?? 0;
+    const avgRevenuePerLead = payingLeadCount > 0
+      ? +((totalRevenue / payingLeadCount).toFixed(2))
+      : 0;
+
+    const topMember = memberAgg[0]
+      ? { name: memberAgg[0].name as string, revenue: memberAgg[0].revenue as number, designation: memberAgg[0].designation as string | undefined }
+      : null;
+
+    return {
+      totalRevenue,
+      payingLeadCount,
+      paymentCount,
+      avgRevenuePerLead,
+      topMember,
+      memberBreakdown: memberAgg.map((m, i) => ({
+        ...m,
+        rank: i + 1,
+        pct: totalRevenue > 0
+          ? +(((m.revenue as number) / totalRevenue) * 100).toFixed(1)
+          : 0,
+      })),
+    };
+  }
+
+  // ── 10. Team-scoped revenue timeline (by member, per time bucket) ─────────────
+
+  async getTeamRevenueTimeline(
+    teamId: string,
+    period: "daily" | "weekly" | "monthly" | "yearly",
+    dateFrom?: string,
+    dateTo?: string,
+  ) {
+    const teamOid      = new mongoose.Types.ObjectId(teamId);
+    const paymentMatch = this.buildPaymentDateFilter(dateFrom, dateTo);
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let bucketId: any;
+    if (period === "daily") {
+      bucketId = { $dateToString: { format: "%Y-%m-%d", date: "$payments.paidAt" } };
+    } else if (period === "weekly") {
+      bucketId = { year: { $isoWeekYear: "$payments.paidAt" }, week: { $isoWeek: "$payments.paidAt" } };
+    } else if (period === "monthly") {
+      bucketId = { year: { $year: "$payments.paidAt" }, month: { $month: "$payments.paidAt" } };
+    } else {
+      bucketId = { year: { $year: "$payments.paidAt" } };
+    }
+
+    const agg = await Lead.aggregate([
+      { $match: { team: teamOid } },
+      { $unwind: "$payments" },
+      { $match: paymentMatch },
+      {
+        $group: {
+          _id:     { bucket: bucketId, member: "$assignedTo" },
+          revenue: { $sum: "$payments.amount" },
+        },
+      },
+      { $sort: { "_id.bucket": 1 } },
+      {
+        $lookup: {
+          from: "users", localField: "_id.member", foreignField: "_id", as: "userInfo",
+        },
+      },
+      { $unwind: { path: "$userInfo", preserveNullAndEmptyArrays: true } },
+      {
+        $project: {
+          bucket:     "$_id.bucket",
+          memberName: { $ifNull: ["$userInfo.name", "Unassigned"] },
+          revenue:    1,
+        },
+      },
+    ]);
+
+    const MONTHS = ["","Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+    const memberSet = new Set<string>();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const bucketMap = new Map<string, Record<string, any>>();
+
+    for (const row of agg) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const b = row.bucket as any;
+      let label: string;
+      if (typeof b === "string") {
+        label = b;
+      } else if (b?.week !== undefined) {
+        label = `W${b.week as number} '${String(b.year as number).slice(2)}`;
+      } else if (b?.month !== undefined) {
+        label = `${MONTHS[b.month as number]} '${String(b.year as number).slice(2)}`;
+      } else {
+        label = String(b?.year ?? "—");
+      }
+
+      const memberName = row.memberName as string;
+      memberSet.add(memberName);
+
+      if (!bucketMap.has(label)) bucketMap.set(label, { label, total: 0 });
+      const bucket = bucketMap.get(label)!;
+      bucket[memberName] = ((bucket[memberName] as number) ?? 0) + (row.revenue as number);
+      bucket.total       = ((bucket.total       as number) ?? 0) + (row.revenue as number);
+    }
+
+    return {
+      members:  Array.from(memberSet),
+      timeline: Array.from(bucketMap.values()),
+    };
+  }
+
+  // ── 11. Status breakdown by period (for comparing periods) ────────────────────
 
   async getStatusByPeriod(
     period: "daily" | "weekly" | "monthly",

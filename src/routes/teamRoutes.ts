@@ -20,6 +20,8 @@ import {
   toggleMemberActive,
   getTeamMemberById,
   getTeamMemberLeads,
+  getTeamRevenue,
+  getTeamRevenueTimeline,
 } from "../controllers/teamController.js";
 import { exportTeamPdf } from "../controllers/exportController.js";
 import { authenticate } from "../middleware/auth.js";
@@ -64,6 +66,10 @@ router.get("/:teamId/members/:memberId/leads",  getTeamMemberLeads);
 // ── Updates feed & team chat ──────────────────────────────────────────────────
 router.get( "/:id/updates",  checkPermission("leads", "view"),   getTeamUpdates);
 router.post("/:id/messages", checkPermission("leads", "view"),   postTeamMessage);
+
+// ── Revenue analytics ─────────────────────────────────────────────────────────
+router.get("/:id/revenue",          checkPermission("leads", "view"), getTeamRevenue);
+router.get("/:id/revenue/timeline", checkPermission("leads", "view"), getTeamRevenueTimeline);
 
 // ── Export ─────────────────────────────────────────────────────────────────────
 router.get("/:id/export-pdf", checkPermission("leads", "view"), exportTeamPdf);

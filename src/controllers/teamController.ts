@@ -2,12 +2,14 @@ import type { Response, NextFunction } from "express";
 import { z } from "zod";
 import type { AuthenticatedRequest } from "../types/index.js";
 import { TeamService } from "../services/teamService.js";
+import { ReportService } from "../services/reportService.js";
 import { sendError, sendSuccess } from "../utils/response.js";
 import { emitTeamUpdate, emitToUser } from "../socket.js";
 import { sendPushToUsers } from "../services/pushService.js";
 import { Team } from "../models/Team.js";
 
-const teamService = new TeamService();
+const teamService   = new TeamService();
+const reportService = new ReportService();
 
 // ─── Validation Schemas ───────────────────────────────────────────────────────
 
@@ -500,6 +502,51 @@ export async function getTeamMemberLeads(
       teamId, memberId, requesterId, requesterRole, filters,
     );
     sendSuccess(res, "Member leads fetched successfully", result.leads, 200, result.pagination);
+  } catch (err) {
+    next(err);
+  }
+}
+
+// ─── Team Revenue (scoped to one team) ───────────────────────────────────────
+
+/** GET /api/teams/:id/revenue?dateFrom=&dateTo= */
+export async function getTeamRevenue(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction,
+) {
+  try {
+    const teamId  = req.params.id;
+    const q       = req.query as Record<string, string>;
+    const dateFrom = q.dateFrom?.trim() || undefined;
+    const dateTo   = q.dateTo?.trim()   || undefined;
+    const data = await reportService.getTeamRevenue(teamId, dateFrom, dateTo);
+    sendSuccess(res, "Team revenue fetched successfully", data);
+  } catch (err) {
+    next(err);
+  }
+}
+
+/** GET /api/teams/:id/revenue/timeline?period=daily|weekly|monthly|yearly&dateFrom=&dateTo= */
+export async function getTeamRevenueTimeline(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction,
+) {
+  try {
+    const teamId = req.params.id;
+    const q      = req.query as Record<string, string>;
+    const period = (q.period || "monthly") as "daily" | "weekly" | "monthly" | "yearly";
+
+    if (!["daily","weekly","monthly","yearly"].includes(period)) {
+      sendError(res, "period must be daily, weekly, monthly, or yearly", 400);
+      return;
+    }
+
+    const dateFrom = q.dateFrom?.trim() || undefined;
+    const dateTo   = q.dateTo?.trim()   || undefined;
+    const data = await reportService.getTeamRevenueTimeline(teamId, period, dateFrom, dateTo);
+    sendSuccess(res, "Team revenue timeline fetched successfully", data);
   } catch (err) {
     next(err);
   }

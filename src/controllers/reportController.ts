@@ -113,3 +113,61 @@ export const getTeamRankings = async (
     next(err);
   }
 };
+
+// ── Revenue controllers ───────────────────────────────────────────────────────
+
+/** GET /api/reports/revenue/overview?dateFrom=&dateTo= */
+export const getRevenueOverview = async (
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<void> => {
+  try {
+    const { dateFrom, dateTo } = getDateParams(req.query as Record<string, string>);
+    const data = await svc.getRevenueOverview(dateFrom, dateTo);
+    sendSuccess(res, "Revenue overview fetched successfully", data);
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * GET /api/reports/revenue/timeline
+ * ?period=daily|weekly|monthly|yearly&dateFrom=&dateTo=
+ */
+export const getRevenueTimeline = async (
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<void> => {
+  try {
+    const q      = req.query as Record<string, string>;
+    const period = (q.period || "monthly") as "daily" | "weekly" | "monthly" | "yearly";
+
+    if (!["daily","weekly","monthly","yearly"].includes(period)) {
+      sendError(res, "period must be daily, weekly, monthly, or yearly", 400);
+      return;
+    }
+
+    const { dateFrom, dateTo } = getDateParams(q);
+    const data = await svc.getRevenueTimeline(period, dateFrom, dateTo);
+    sendSuccess(res, "Revenue timeline fetched successfully", data);
+  } catch (err) {
+    next(err);
+  }
+};
+
+/** GET /api/reports/revenue/teams?dateFrom=&dateTo= */
+export const getRevenueTeams = async (
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<void> => {
+  try {
+    const { dateFrom, dateTo } = getDateParams(req.query as Record<string, string>);
+    const data = await svc.getRevenueTeams(dateFrom, dateTo);
+    sendSuccess(res, "Revenue teams fetched successfully", data);
+  } catch (err) {
+    next(err);
+  }
+};
