@@ -513,29 +513,39 @@ export class LeadService {
   // ─────────────────────────────────────────────────────────────────────────────
 
   async bulkCreateLeads(leads: ParsedLead[], reporterId: string) {
-    const leadsWithReporter = leads.map((lead) => ({
-      ...lead,
-      reporter: reporterId,
-      notes: {
-        content: lead.notes,
-        author: reporterId,
-        // createdAt: new Date(),
-        // updatedAt: new Date(),
-      },
-      activityLogs: [
-        {
-          action: "lead_created",
-          description: "Lead was created via bulk upload",
-          performedBy: reporterId,
-          createdAt: new Date(),
-        },
-      ],
-    }));
-    console.log(leadsWithReporter);
+    const EMAIL_RE = /^\S+@\S+\.\S+$/;
+
+    const leadsWithReporter = leads.map((lead) => {
+      // Only keep email if it looks like a real address — "No Email" / blanks
+      // would fail the Lead schema regex and cause insertMany to reject the row.
+      const email =
+        lead.email && EMAIL_RE.test(lead.email.trim())
+          ? lead.email.trim().toLowerCase()
+          : undefined;
+
+      return {
+        ...lead,
+        email,                        // undefined = field omitted from document
+        reporter: reporterId,
+        // notes must be an ARRAY of sub-documents, not a plain object.
+        // Passing an object here caused every row to fail Mongoose validation.
+        notes: lead.notes
+          ? [{ content: lead.notes, author: reporterId }]
+          : [],
+        activityLogs: [
+          {
+            action: "lead_created",
+            description: "Lead was created via bulk upload",
+            performedBy: reporterId,
+            createdAt: new Date(),
+          },
+        ],
+      };
+    });
+
     const created = await Lead.insertMany(leadsWithReporter, {
       ordered: false,
     });
-    console.log(created);
     return created;
   }
 
