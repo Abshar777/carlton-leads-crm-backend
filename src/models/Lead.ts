@@ -196,6 +196,11 @@ const leadSchema = new Schema<ILead>(
       type: [activityLogSchema],
       default: [],
     },
+    callNotConnected: {
+      type: Number,
+      default: 0,
+      min: [0, "Call not connected count cannot be negative"],
+    },
   },
   {
     timestamps: true,

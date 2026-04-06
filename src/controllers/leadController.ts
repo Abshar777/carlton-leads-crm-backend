@@ -838,6 +838,39 @@ export const updatePayment = async (
   }
 };
 
+// ─── Call Not Connected ───────────────────────────────────────────────────────
+
+const callNotConnectedSchema = z.object({
+  action: z.enum(["increment", "decrement"]),
+});
+
+/** PATCH /leads/:id/call-not-connected */
+export const updateCallNotConnected = async (
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<void> => {
+  try {
+    const parsed = callNotConnectedSchema.safeParse(req.body);
+    if (!parsed.success) {
+      sendError(res, "Validation failed", 400, parsed.error.flatten().fieldErrors);
+      return;
+    }
+    const lead = await Lead.findById(req.params.id);
+    if (!lead) { sendError(res, "Lead not found", 404); return; }
+
+    const current = lead.callNotConnected ?? 0;
+    const newCount = parsed.data.action === "increment"
+      ? current + 1
+      : Math.max(0, current - 1);
+
+    await Lead.updateOne({ _id: lead._id }, { $set: { callNotConnected: newCount } });
+    sendSuccess(res, "Call not connected count updated", { callNotConnected: newCount });
+  } catch (error) {
+    next(error);
+  }
+};
+
 /** DELETE /leads/:id/payments/:paymentId */
 export const deletePayment = async (
   req: AuthenticatedRequest,

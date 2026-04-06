@@ -206,6 +206,7 @@ export interface ILead extends Document {
   reminders: Types.DocumentArray<IReminder & Document>;
   payments: Types.DocumentArray<IPayment & Document>;
   activityLogs: Types.DocumentArray<IActivityLog & Document>;
+  callNotConnected: number;
   createdAt: Date;
   updatedAt: Date;
 }

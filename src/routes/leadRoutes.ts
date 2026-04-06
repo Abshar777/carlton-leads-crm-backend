@@ -28,6 +28,7 @@ import {
   addPayment,
   updatePayment,
   deletePayment,
+  updateCallNotConnected,
 } from "../controllers/leadController.js";
 import { authenticate } from "../middleware/auth.js";
 import { checkPermission } from "../middleware/permissions.js";
@@ -71,10 +72,11 @@ router.post("/", checkPermission("leads", "create"), createLead);
 router.get("/", checkPermission("leads", "view"), getLeads);
 router.get("/:id", checkPermission("leads", "view"), getLeadById);
 router.put("/:id", checkPermission("leads", "edit"), updateLead);
-router.patch("/:id/status",   checkPermission("leads", "edit"), updateLeadStatus);
-router.patch("/:id/assign",   checkPermission("leads", "edit"), assignLead);
-router.patch("/:id/team",     checkPermission("leads", "edit"), assignLeadToTeam);
-router.patch("/:id/transfer", checkPermission("leads", "edit"), transferLeadToTeam);
+router.patch("/:id/status",              checkPermission("leads", "edit"), updateLeadStatus);
+router.patch("/:id/assign",              checkPermission("leads", "edit"), assignLead);
+router.patch("/:id/team",                checkPermission("leads", "edit"), assignLeadToTeam);
+router.patch("/:id/transfer",            checkPermission("leads", "edit"), transferLeadToTeam);
+router.patch("/:id/call-not-connected",  checkPermission("leads", "edit"), updateCallNotConnected);
 router.delete("/:id", checkPermission("leads", "delete"), deleteLead);
 
 // ─── Notes (nested under lead) ────────────────────────────────────────────────
