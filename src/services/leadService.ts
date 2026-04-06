@@ -567,7 +567,12 @@ export class LeadService {
     return created;
   }
 
-  async autoAssignLeads(leadIds?: string[]): Promise<AutoAssignResult> {
+  async autoAssignLeads(leadIds?: string[], teamIds?: string[]): Promise<AutoAssignResult> {
+    // Empty array means "no teams selected → skip auto-assign entirely"
+    if (Array.isArray(teamIds) && teamIds.length === 0) {
+      return { assigned: 0, results: [] };
+    }
+
     const query =
       leadIds && leadIds.length > 0
         ? { _id: { $in: leadIds } }
@@ -576,8 +581,16 @@ export class LeadService {
     const leadsToAssign = await Lead.find(query);
     if (leadsToAssign.length === 0) return { assigned: 0, results: [] };
 
-    const activeTeams = await Team.find({ status: "active" });
+    // If specific team IDs supplied, restrict to those teams only
+    const teamFilter =
+      teamIds && teamIds.length > 0
+        ? { status: "active", _id: { $in: teamIds } }
+        : { status: "active" };
+
+    const activeTeams = await Team.find(teamFilter);
     if (activeTeams.length === 0) {
+      // When caller specified specific teams but none matched / inactive, skip silently
+      if (teamIds && teamIds.length > 0) return { assigned: 0, results: [] };
       throw Object.assign(
         new Error("No active teams found for assignment"),
         { statusCode: 404 },

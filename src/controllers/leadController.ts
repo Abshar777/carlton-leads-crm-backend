@@ -54,6 +54,7 @@ const assignLeadSchema = z.object({
 
 const autoAssignSchema = z.object({
   leadIds: z.array(z.string()).optional(),
+  teamIds: z.array(z.string()).optional(),
 });
 
 const noteSchema = z.object({
@@ -114,6 +115,17 @@ export const uploadLeads = async (
       );
     }
 
+    // teamIds may arrive as a JSON string in the multipart form body
+    let teamIds: string[] | undefined;
+    try {
+      if (req.body.teamIds) {
+        const parsed = JSON.parse(req.body.teamIds as string);
+        if (Array.isArray(parsed)) teamIds = parsed.filter((id) => typeof id === "string");
+      }
+    } catch {
+      // malformed — treat as "all teams"
+    }
+
     let assignmentResult = {
       assigned: 0,
       results: [] as { leadId: string; assignedTo: string }[],
@@ -123,7 +135,7 @@ export const uploadLeads = async (
         const leadIds = (
           createdLeads as Array<{ _id: { toString(): string } }>
         ).map((l) => l._id.toString());
-        assignmentResult = await leadService.autoAssignLeads(leadIds);
+        assignmentResult = await leadService.autoAssignLeads(leadIds, teamIds);
       } catch {
         // Auto-assign failure should not block the upload
       }
@@ -384,7 +396,7 @@ export const autoAssignLeads = async (
       return;
     }
 
-    const result = await leadService.autoAssignLeads(parsed.data.leadIds);
+    const result = await leadService.autoAssignLeads(parsed.data.leadIds, parsed.data.teamIds);
     sendSuccess(
       res,
       `Successfully assigned ${result.assigned} lead(s)`,
