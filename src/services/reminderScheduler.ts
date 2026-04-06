@@ -64,7 +64,7 @@ async function tick(): Promise<void> {
         if (r.isDone)        continue;
         if (r.notifiedAt)    continue;
         if (r.remindAt > now) continue;
-
+        console.log(r,"reminder 🍀")
         const userId = safeUserId(r.createdBy);
         if (!userId) continue;
 
