@@ -107,7 +107,7 @@ async function notifyTeamLeaders(
 export class LeadService {
   // ── Create ──────────────────────────────────────────────────────────────────
   async createLead(
-    data: ParsedLead & { status?: LeadStatus; assignedTo?: string; course?: string | null },
+    data: ParsedLead & { status?: LeadStatus; assignedTo?: string; course?: string | null; team?: string | null },
     reporterId: string,
   ) {
     const lead = await Lead.create({

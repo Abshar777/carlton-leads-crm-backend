@@ -23,6 +23,7 @@ const createLeadSchema = z.object({
   status: z
     .enum(["new", "assigned", "followup", "closed", "rejected", "cnc", "booking", "partialbooking", "interested", "rnr", "callback", "whatsapp", "student"])
     .optional(),
+  team: z.string().optional().nullable(),
   assignedTo: z.string().optional(),
 });
 
@@ -162,8 +163,13 @@ export const createLead = async (
       return;
     }
 
-    const data = { ...parsed.data, email: parsed.data.email || undefined };
-    // Auto-assign to the creator if no explicit assignee is provided
+    const data = {
+      ...parsed.data,
+      email:      parsed.data.email  || undefined,
+      team:       parsed.data.team   || undefined,
+      assignedTo: parsed.data.assignedTo || undefined,
+    };
+    // Auto-assign to the creator only when no explicit assignee was chosen
     if (!data.assignedTo) {
       data.assignedTo = req.user!.userId;
     }
