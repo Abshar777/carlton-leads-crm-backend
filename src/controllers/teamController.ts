@@ -325,7 +325,12 @@ export async function getTeamDashboard(
   next: NextFunction,
 ) {
   try {
-    const dashboard = await teamService.getTeamDashboard(req.params.id);
+    const q = req.query as Record<string, string>;
+    const dashboard = await teamService.getTeamDashboard(
+      req.params.id,
+      q.dateFrom?.trim() || undefined,
+      q.dateTo?.trim()   || undefined,
+    );
     sendSuccess(res, "Team dashboard fetched successfully", dashboard);
   } catch (err) {
     next(err);

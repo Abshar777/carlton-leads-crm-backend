@@ -74,18 +74,21 @@ export class TeamService {
 
     // Append lead counts per team
     const teamIds = teams.map((t) => (t as unknown as ITeam & { _id: { toString(): string } })._id.toString());
+    const now = new Date();
+    const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
     const leadCounts = await Promise.all(
       teamIds.map(async (id) => ({
-        teamId: id,
+        teamId:     id,
         total:      await Lead.countDocuments({ team: id }),
         unassigned: await Lead.countDocuments({ team: id, assignedTo: null }),
+        thisMonth:  await Lead.countDocuments({ team: id, createdAt: { $gte: monthStart } }),
       }))
     );
     const countMap = Object.fromEntries(leadCounts.map((c) => [c.teamId, c]));
 
     const enriched = teams.map((t) => {
       const id = (t as { _id: { toString(): string } })._id.toString();
-      return { ...t, leadStats: countMap[id] ?? { total: 0, unassigned: 0 } };
+      return { ...t, leadStats: countMap[id] ?? { total: 0, unassigned: 0, thisMonth: 0 } };
     });
 
     return { teams: enriched, pagination: buildPagination(total, page, limit) };
@@ -96,12 +99,15 @@ export class TeamService {
     const team = await populatedTeam(id);
     if (!team) throw Object.assign(new Error("Team not found"), { statusCode: 404 });
 
-    const [total, unassigned] = await Promise.all([
+    const now2 = new Date();
+    const monthStart2 = new Date(Date.UTC(now2.getUTCFullYear(), now2.getUTCMonth(), 1));
+    const [total, unassigned, thisMonth] = await Promise.all([
       Lead.countDocuments({ team: id }),
       Lead.countDocuments({ team: id, assignedTo: null }),
+      Lead.countDocuments({ team: id, createdAt: { $gte: monthStart2 } }),
     ]);
 
-    return { ...team.toObject(), leadStats: { total, unassigned } };
+    return { ...team.toObject(), leadStats: { total, unassigned, thisMonth } };
   }
 
   // ── Update ────────────────────────────────────────────────────────────────────
@@ -365,7 +371,7 @@ export class TeamService {
   }
 
   // ── Team dashboard stats ───────────────────────────────────────────────────────
-  async getTeamDashboard(teamId: string) {
+  async getTeamDashboard(teamId: string, dateFrom?: string, dateTo?: string) {
     const team = await Team.findById(teamId)
       .populate("members", "name email designation")
       .populate("leaders", "name email designation");
@@ -376,23 +382,38 @@ export class TeamService {
       ...(team.members as unknown as (IUser & { _id: { toString(): string } })[]),
     ];
 
-    const [total, newCount, assigned, followup, closed, rejected, unassigned, cnc, booking, partialbooking, interested, rnr, callback, whatsapp, student] =
+    // Always-current-month window for the thisMonth stat
+    const dashNow = new Date();
+    const dashMonthStart = new Date(Date.UTC(dashNow.getUTCFullYear(), dashNow.getUTCMonth(), 1));
+
+    // Optional date range filter applied to all other counts
+    const dateFilter: Record<string, unknown> = {};
+    if (dateFrom || dateTo) {
+      const range: Record<string, Date> = {};
+      if (dateFrom) { const d = new Date(dateFrom); d.setUTCHours(0, 0, 0, 0); if (!isNaN(d.getTime())) range.$gte = d; }
+      if (dateTo)   { const d = new Date(dateTo);   d.setUTCHours(23, 59, 59, 999); if (!isNaN(d.getTime())) range.$lte = d; }
+      if (Object.keys(range).length) dateFilter.createdAt = range;
+    }
+    const base = { team: teamId, ...dateFilter };
+
+    const [total, newCount, assigned, followup, closed, rejected, unassigned, cnc, booking, partialbooking, interested, rnr, callback, whatsapp, student, thisMonth] =
       await Promise.all([
-        Lead.countDocuments({ team: teamId }),
-        Lead.countDocuments({ team: teamId, status: "new" }),
-        Lead.countDocuments({ team: teamId, status: "assigned" }),
-        Lead.countDocuments({ team: teamId, status: "followup" }),
-        Lead.countDocuments({ team: teamId, status: "closed" }),
-        Lead.countDocuments({ team: teamId, status: "rejected" }),
-        Lead.countDocuments({ team: teamId, assignedTo: null }),
-        Lead.countDocuments({ team: teamId, status: "cnc" }),
-        Lead.countDocuments({ team: teamId, status: "booking" }),
-        Lead.countDocuments({ team: teamId, status: "partialbooking" }),
-        Lead.countDocuments({ team: teamId, status: "interested" }),
-        Lead.countDocuments({ team: teamId, status: "rnr" }),
-        Lead.countDocuments({ team: teamId, status: "callback" }),
-        Lead.countDocuments({ team: teamId, status: "whatsapp" }),
-        Lead.countDocuments({ team: teamId, status: "student" }),
+        Lead.countDocuments(base),
+        Lead.countDocuments({ ...base, status: "new" }),
+        Lead.countDocuments({ ...base, status: "assigned" }),
+        Lead.countDocuments({ ...base, status: "followup" }),
+        Lead.countDocuments({ ...base, status: "closed" }),
+        Lead.countDocuments({ ...base, status: "rejected" }),
+        Lead.countDocuments({ ...base, assignedTo: null }),
+        Lead.countDocuments({ ...base, status: "cnc" }),
+        Lead.countDocuments({ ...base, status: "booking" }),
+        Lead.countDocuments({ ...base, status: "partialbooking" }),
+        Lead.countDocuments({ ...base, status: "interested" }),
+        Lead.countDocuments({ ...base, status: "rnr" }),
+        Lead.countDocuments({ ...base, status: "callback" }),
+        Lead.countDocuments({ ...base, status: "whatsapp" }),
+        Lead.countDocuments({ ...base, status: "student" }),
+        Lead.countDocuments({ team: teamId, createdAt: { $gte: dashMonthStart } }), // always current month
       ]);
 
     const memberRankings = await Promise.all(
@@ -400,9 +421,10 @@ export class TeamService {
         const id = m._id.toString();
         const uid = new mongoose.Types.ObjectId(id);
 
-        // Run status counts + total payments in a single aggregation
+        // Run status counts + total payments in a single aggregation (respects date filter)
+        const matchStage = { team: new mongoose.Types.ObjectId(teamId), assignedTo: uid, ...dateFilter };
         const [agg] = await Lead.aggregate([
-          { $match: { team: new mongoose.Types.ObjectId(teamId), assignedTo: uid } },
+          { $match: matchStage },
           {
             $group: {
               _id: null,
@@ -460,7 +482,7 @@ export class TeamService {
     memberRankings.sort((a, b) => b.totalPayments - a.totalPayments);
 
     return {
-      statusDistribution: { total, new: newCount, assigned, followup, closed, rejected, unassigned, cnc, booking, partialbooking, interested, rnr, callback, whatsapp, student },
+      statusDistribution: { total, thisMonth, new: newCount, assigned, followup, closed, rejected, unassigned, cnc, booking, partialbooking, interested, rnr, callback, whatsapp, student },
       memberRankings,
     };
   }

@@ -202,6 +202,10 @@ export class ReportService {
   async getTeamRankings(dateFrom?: string, dateTo?: string) {
     const match = this.buildDateFilter(dateFrom, dateTo);
 
+    // This-month window for the thisMonth field (always current month, regardless of date filter)
+    const rankNow = new Date();
+    const rankMonthStart = new Date(Date.UTC(rankNow.getUTCFullYear(), rankNow.getUTCMonth(), 1));
+
     const agg = await Lead.aggregate([
       { $match: { ...match, team: { $exists: true, $ne: null } } },
       {
@@ -245,7 +249,17 @@ export class ReportService {
       },
     ]);
 
-    return agg.map((item, i) => ({ ...item, rank: i + 1 }));
+    // Enrich each team with this month's lead count
+    const enriched = await Promise.all(
+      agg.map(async (item, i) => {
+        const thisMonth = await Lead.countDocuments({
+          team: item.teamId,
+          createdAt: { $gte: rankMonthStart },
+        });
+        return { ...item, rank: i + 1, thisMonth };
+      }),
+    );
+    return enriched;
   }
 
   // ── 5. Team lead split over time ─────────────────────────────────────────────

@@ -584,10 +584,16 @@ export class LeadService {
       );
     }
 
-    // Count current leads per team and sort ascending (fill-to-equal algorithm)
+    // Count THIS MONTH's leads per team — fair monthly balancing (resets each month)
+    const assignNow = new Date();
+    const assignMonthStart = new Date(Date.UTC(assignNow.getUTCFullYear(), assignNow.getUTCMonth(), 1));
+
     const teamLeadCounts = await Promise.all(
       activeTeams.map(async (team) => {
-        const count = await Lead.countDocuments({ team: team._id });
+        const count = await Lead.countDocuments({
+          team: team._id,
+          createdAt: { $gte: assignMonthStart },
+        });
         return { team, count };
       }),
     );
