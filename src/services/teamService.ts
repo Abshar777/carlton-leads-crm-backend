@@ -285,7 +285,7 @@ export class TeamService {
 
       updates.push(
         Lead.findByIdAndUpdate(lead._id, {
-          $set: { assignedTo: member._id, status: "assigned" },
+          $set: { assignedTo: member._id, status: "assigned", assignedAt: new Date() },
           $push: {
             activityLogs: {
               action: "lead_assigned",
@@ -343,6 +343,7 @@ export class TeamService {
     const prevAssignee = lead.assignedTo?.toString() ?? null;
     lead.assignedTo = user._id;
     lead.status = "assigned";
+    (lead as unknown as Record<string, unknown>).assignedAt = new Date();
 
     lead.activityLogs.push({
       action: "lead_assigned",
@@ -493,6 +494,7 @@ export class TeamService {
         const prev = lead.assignedTo?.toString() ?? null;
         lead.assignedTo = user._id;
         lead.status = "assigned";
+        (lead as unknown as Record<string, unknown>).assignedAt = new Date();
         lead.activityLogs.push({
           action: "lead_assigned",
           description: `Bulk assigned to ${user.name} by team leader`,

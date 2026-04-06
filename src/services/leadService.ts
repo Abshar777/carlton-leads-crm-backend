@@ -112,6 +112,7 @@ export class LeadService {
   ) {
     const lead = await Lead.create({
       ...data,
+      assignedAt: data.assignedTo ? new Date() : null,
       reporter: reporterId,
       activityLogs: [
         {
@@ -249,6 +250,14 @@ export class LeadService {
 
     Object.assign(lead, data);
 
+    // Stamp assignedAt whenever assignedTo is set or changed
+    const newAssignee = data.assignedTo ? String(data.assignedTo) : undefined;
+    if (newAssignee && newAssignee !== prevAssignedTo) {
+      (lead as unknown as Record<string, unknown>).assignedAt = new Date();
+    } else if (data.assignedTo === null) {
+      (lead as unknown as Record<string, unknown>).assignedAt = null;
+    }
+
     const changedFields = Object.keys(changes);
     if (changedFields.length > 0) {
       addLog(
@@ -318,6 +327,7 @@ export class LeadService {
     const prevAssignee = lead.assignedTo?.toString() ?? null;
     lead.assignedTo = user._id;
     lead.status = "assigned";
+    (lead as unknown as Record<string, unknown>).assignedAt = new Date();
 
     addLog(
       lead as never,

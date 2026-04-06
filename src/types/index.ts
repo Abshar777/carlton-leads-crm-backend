@@ -199,6 +199,7 @@ export interface ILead extends Document {
   status: LeadStatus;
   course?: Types.ObjectId | ICourse;
   assignedTo?: Types.ObjectId | IUser;
+  assignedAt?: Date | null;
   team?: Types.ObjectId | ITeam;
   reporter: Types.ObjectId | IUser;
   notes: Types.DocumentArray<ILeadNote & Document>;

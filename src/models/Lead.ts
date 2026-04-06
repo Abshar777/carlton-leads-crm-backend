@@ -166,6 +166,10 @@ const leadSchema = new Schema<ILead>(
       ref: "User",
       default: null,
     },
+    assignedAt: {
+      type: Date,
+      default: null,
+    },
     team: {
       type: Schema.Types.ObjectId,
       ref: "Team",
