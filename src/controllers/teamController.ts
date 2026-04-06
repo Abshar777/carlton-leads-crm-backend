@@ -300,6 +300,10 @@ export async function bulkUpdateTeamLeadsStatus(
           "cnc",
           "booking",
           "interested",
+          "rnr",
+          "callback",
+          "whatsapp",
+          "student",
         ]),
       })
       .parse(req.body);
@@ -547,6 +551,33 @@ export async function getTeamRevenueTimeline(
     const dateTo   = q.dateTo?.trim()   || undefined;
     const data = await reportService.getTeamRevenueTimeline(teamId, period, dateFrom, dateTo);
     sendSuccess(res, "Team revenue timeline fetched successfully", data);
+  } catch (err) {
+    next(err);
+  }
+}
+
+/** GET /api/teams/:id/reminders?memberId=&isDone=&search=&page=&limit= */
+export async function getTeamReminders(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction,
+) {
+  try {
+    const teamId = req.params.id;
+    const q = req.query as Record<string, string>;
+    const data = await teamService.getTeamReminders(
+      teamId,
+      req.user!.userId,
+      req.user!.role as { isSystemRole?: boolean; roleName?: string },
+      {
+        memberId: q.memberId?.trim() || undefined,
+        isDone:   q.isDone?.trim()   || undefined,
+        search:   q.search?.trim()   || undefined,
+        page:     q.page,
+        limit:    q.limit,
+      },
+    );
+    sendSuccess(res, "Team reminders fetched successfully", data);
   } catch (err) {
     next(err);
   }

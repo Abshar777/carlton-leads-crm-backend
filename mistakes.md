@@ -236,3 +236,11 @@ router.patch("/:teamId/leads/:leadId/assign", authenticate, checkPermission("tea
 ```
 
 **Rule**: Same as Bug #6 — static paths before parameterized paths. For nested routes, check EACH level of nesting for this ordering issue. Always declare `/bulk/...` routes before `/:id/...` routes at the same nesting level.
+
+---
+
+## [2026-04-06] Lead Status enum mismatch — PipelineStage type
+
+**Bug:** When adding `getTeamReminders` aggregation pipeline, typed as `object[]` instead of `PipelineStage[]`. Mongoose aggregation requires the stricter `PipelineStage[]` type from mongoose.
+**Fix:** `import { type PipelineStage } from "mongoose"` and typed pipeline as `PipelineStage[]`.
+**Also:** `preserveNullAndEmpty` is not valid — correct key is `preserveNullAndEmptyArrays` in `$unwind` stage.

@@ -78,6 +78,10 @@ export const exportExcel = async (
       "Partial Booking": (t as Record<string, unknown>).partialbooking ?? 0,
       Closed:            t.closed,
       Rejected:          t.rejected,
+      RNR:               (t as Record<string, unknown>).rnr ?? 0,
+      "Call Back":       (t as Record<string, unknown>).callback ?? 0,
+      WhatsApp:          (t as Record<string, unknown>).whatsapp ?? 0,
+      Student:           (t as Record<string, unknown>).student ?? 0,
       "Conversion Rate (%)": t.conversionRate,
     }));
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(teamsRows), "Teams");
@@ -98,6 +102,10 @@ export const exportExcel = async (
       "Partial Booking": (m as Record<string, unknown>).partialbooking ?? 0,
       Closed:            m.closed,
       Rejected:          m.rejected,
+      RNR:               (m as Record<string, unknown>).rnr ?? 0,
+      "Call Back":       (m as Record<string, unknown>).callback ?? 0,
+      WhatsApp:          (m as Record<string, unknown>).whatsapp ?? 0,
+      Student:           (m as Record<string, unknown>).student ?? 0,
       "Conversion Rate (%)": m.conversionRate,
     }));
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(membersRows), "Members");
@@ -229,6 +237,7 @@ export const exportPdf = async (
       new:"#3b82f6", assigned:"#eab308", followup:"#f97316",
       interested:"#8b5cf6", cnc:"#64748b", booking:"#14b8a6",
       partialbooking:"#ec4899", closed:"#22c55e", rejected:"#ef4444",
+      rnr:"#f59e0b", callback:"#0ea5e9", whatsapp:"#25d366", student:"#6366f1",
     };
     statuses.forEach((s, i) => {
       const sx = 40 + i * sW;
@@ -245,15 +254,20 @@ export const exportPdf = async (
     doc.fillColor(DARK).font("Helvetica-Bold").fontSize(11).text("Team Rankings", 40, y);
     y += 16;
 
-    const teamHeaders = ["Rank","Team","Members","Leads","Revenue(₹)","New","Assigned","Follow Up","Interested","CNC","Booking","Part.Bkg","Closed","Rejected","Conv %"];
-    const teamColW    = [26, 82, 38, 32, 54, 28, 38, 44, 50, 28, 38, 40, 32, 38, 36];
+    const teamHeaders = ["Rank","Team","Members","Leads","Revenue(₹)","New","Assigned","Followup","Interested","CNC","Booking","Part.Bkg","Closed","Rejected","RNR","Callback","WhatsApp","Student","Conv %"];
+    const teamColW    = [22, 68, 34, 28, 48, 24, 34, 38, 44, 24, 34, 36, 28, 34, 24, 40, 44, 36, 32];
 
     const teamRows = teams.map((t) => [
       t.rank, t.name, (t as Record<string, unknown>).memberCount ?? 0,
       t.total, (t as Record<string, unknown>).totalPayments ?? 0,
       t.new, t.assigned, t.followup, t.interested,
       t.cnc, t.booking, (t as Record<string, unknown>).partialbooking ?? 0,
-      t.closed, t.rejected, `${t.conversionRate}%`,
+      t.closed, t.rejected,
+      (t as Record<string, unknown>).rnr ?? 0,
+      (t as Record<string, unknown>).callback ?? 0,
+      (t as Record<string, unknown>).whatsapp ?? 0,
+      (t as Record<string, unknown>).student ?? 0,
+      `${t.conversionRate}%`,
     ]);
 
     y = pdfTable(doc, teamHeaders, teamColW, teamRows as (string | number)[][], 40, y);
@@ -268,14 +282,19 @@ export const exportPdf = async (
     doc.fillColor(DARK).font("Helvetica-Bold").fontSize(11).text("Member Rankings", 40, y);
     y += 16;
 
-    const memHeaders = ["Rank","Name","Email","Designation","Total","New","Assigned","Followup","Interested","CNC","Booking","Part.Bkg","Closed","Rejected","Conv %"];
-    const memColW    = [26, 80, 100, 60, 32, 26, 36, 38, 44, 26, 36, 38, 32, 36, 36];
+    const memHeaders = ["Rank","Name","Email","Desig.","Total","New","Assigned","Followup","Interested","CNC","Booking","Part.Bkg","Closed","Rejected","RNR","Callback","WhatsApp","Student","Conv %"];
+    const memColW    = [22, 70, 90, 50, 28, 22, 32, 34, 40, 22, 32, 34, 28, 32, 20, 36, 40, 34, 30];
 
     const memRows = members.map((m) => [
       m.rank, m.name, m.email, (m as Record<string, unknown>).designation ?? "-",
       m.total, m.new, m.assigned, m.followup, m.interested,
       m.cnc, m.booking, (m as Record<string, unknown>).partialbooking ?? 0,
-      m.closed, m.rejected, `${m.conversionRate}%`,
+      m.closed, m.rejected,
+      (m as Record<string, unknown>).rnr ?? 0,
+      (m as Record<string, unknown>).callback ?? 0,
+      (m as Record<string, unknown>).whatsapp ?? 0,
+      (m as Record<string, unknown>).student ?? 0,
+      `${m.conversionRate}%`,
     ]);
 
     pdfTable(doc, memHeaders, memColW, memRows as (string | number)[][], 40, y);
@@ -311,12 +330,14 @@ export const exportPdf = async (
 
 const ALL_STATUSES_EX = [
   "new", "assigned", "followup", "interested", "cnc", "booking", "partialbooking", "closed", "rejected",
+  "rnr", "callback", "whatsapp", "student",
 ] as const;
 
 const STATUS_COLORS_EX: Record<string, string> = {
   new:"#3b82f6", assigned:"#eab308", followup:"#f97316",
   interested:"#8b5cf6", cnc:"#64748b", booking:"#14b8a6",
   partialbooking:"#ec4899", closed:"#22c55e", rejected:"#ef4444",
+  rnr:"#f59e0b", callback:"#0ea5e9", whatsapp:"#25d366", student:"#6366f1",
 };
 
 function buildDateMatch(dateFrom?: string, dateTo?: string): Record<string, unknown> {
@@ -414,7 +435,7 @@ export const exportTeamPdf = async (
     for (const item of statusAgg) { statusCounts[item._id] = item.count; teamTotal += item.count; }
 
     // ── Member performance ────────────────────────────────────────────────────
-    type MemberRow = { name: string; total: number; totalPayments: number; closed: number; followup: number; cnc: number; booking: number; partialbooking: number; interested: number; cr: string };
+    type MemberRow = { name: string; total: number; totalPayments: number; closed: number; followup: number; cnc: number; booking: number; partialbooking: number; interested: number; rnr: number; callback: number; whatsapp: number; student: number; cr: string };
     const leaderIds = new Set(
       (team.leaders as unknown as { _id: { toString(): string } }[]).map((l) => l._id.toString()),
     );
@@ -437,12 +458,16 @@ export const exportTeamPdf = async (
             booking:        { $sum: { $cond: [{ $eq: ["$status","booking"] },        1, 0] } },
             partialbooking: { $sum: { $cond: [{ $eq: ["$status","partialbooking"] }, 1, 0] } },
             interested:     { $sum: { $cond: [{ $eq: ["$status","interested"] },     1, 0] } },
+            rnr:            { $sum: { $cond: [{ $eq: ["$status","rnr"] },            1, 0] } },
+            callback:       { $sum: { $cond: [{ $eq: ["$status","callback"] },       1, 0] } },
+            whatsapp:       { $sum: { $cond: [{ $eq: ["$status","whatsapp"] },       1, 0] } },
+            student:        { $sum: { $cond: [{ $eq: ["$status","student"] },        1, 0] } },
           }},
         ]);
-        const d = agg2[0] ?? { total:0, totalPayments:0, closed:0, followup:0, cnc:0, booking:0, partialbooking:0, interested:0 };
+        const d = agg2[0] ?? { total:0, totalPayments:0, closed:0, followup:0, cnc:0, booking:0, partialbooking:0, interested:0, rnr:0, callback:0, whatsapp:0, student:0 };
         const cr = d.total > 0 ? ((d.closed / d.total) * 100).toFixed(1) : "0.0";
         const role = leaderIds.has(uid) ? " (Leader)" : "";
-        return { name: u.name + role, total:d.total, totalPayments:d.totalPayments, closed:d.closed, followup:d.followup, cnc:d.cnc, booking:d.booking, partialbooking:d.partialbooking, interested:d.interested, cr };
+        return { name: u.name + role, total:d.total, totalPayments:d.totalPayments, closed:d.closed, followup:d.followup, cnc:d.cnc, booking:d.booking, partialbooking:d.partialbooking, interested:d.interested, rnr:d.rnr, callback:d.callback, whatsapp:d.whatsapp, student:d.student, cr };
       }),
     );
     // Best performer = highest total payments collected
@@ -479,10 +504,10 @@ export const exportTeamPdf = async (
     // Member table
     doc.fillColor(DARK).font("Helvetica-Bold").fontSize(10).text("Member Performance", 40, y);
     y += 12;
-    const mHeaders = ["Member", "Total", "Revenue(₹)", "Closed", "Follow Up", "Interested", "CNC", "Booking", "Part.Bkg", "Conv %"];
-    const mColW    = [130, 34, 58, 34, 44, 50, 32, 40, 40, 40];
+    const mHeaders = ["Member", "Total", "Revenue(₹)", "Closed", "Followup", "Interested", "CNC", "Booking", "Part.Bkg", "RNR", "Callback", "WhatsApp", "Student", "Conv %"];
+    const mColW    = [100, 28, 50, 28, 36, 42, 24, 34, 36, 24, 40, 42, 36, 36];
     y = pdfTable(doc, mHeaders, mColW, memberRows.map((r) =>
-      [r.name, r.total, r.totalPayments, r.closed, r.followup, r.interested, r.cnc, r.booking, r.partialbooking, `${r.cr}%`]
+      [r.name, r.total, r.totalPayments, r.closed, r.followup, r.interested, r.cnc, r.booking, r.partialbooking, r.rnr, r.callback, r.whatsapp, r.student, `${r.cr}%`]
     ), 40, y);
 
     pdfFooter(doc);
@@ -577,6 +602,10 @@ export const exportUserPdf = async (
       ["Booking",               statusCounts.booking],
       ["Partial Booking",       statusCounts.partialbooking ?? 0],
       ["CNC (Could Not Connect)", statusCounts.cnc],
+      ["RNR (Ring No Response)", statusCounts.rnr ?? 0],
+      ["Call Back",             statusCounts.callback ?? 0],
+      ["WhatsApp",              statusCounts.whatsapp ?? 0],
+      ["Student",               statusCounts.student ?? 0],
       ["Rejected",              statusCounts.rejected],
       ["New (Unworked)",        statusCounts.new],
     ];

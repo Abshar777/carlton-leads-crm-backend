@@ -5,6 +5,7 @@ import { User } from "../models/User.js";
 
 const ALL_STATUSES = [
   "new", "assigned", "followup", "interested", "cnc", "booking", "partialbooking", "closed", "rejected",
+  "rnr", "callback", "whatsapp", "student",
 ] as const;
 
 type LeadStatus = (typeof ALL_STATUSES)[number];

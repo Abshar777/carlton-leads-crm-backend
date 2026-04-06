@@ -21,7 +21,7 @@ const createLeadSchema = z.object({
   source: z.string().max(100).optional(),
   course: z.string().optional().nullable(),
   status: z
-    .enum(["new", "assigned", "followup", "closed", "rejected", "cnc", "booking", "partialbooking", "interested"])
+    .enum(["new", "assigned", "followup", "closed", "rejected", "cnc", "booking", "partialbooking", "interested", "rnr", "callback", "whatsapp", "student"])
     .optional(),
   assignedTo: z.string().optional(),
 });
@@ -38,13 +38,13 @@ const updateLeadSchema = z.object({
   source: z.string().max(100).optional().nullable(),
   course: z.string().optional().nullable(),
   status: z
-    .enum(["new", "assigned", "followup", "closed", "rejected", "cnc", "booking", "partialbooking", "interested"])
+    .enum(["new", "assigned", "followup", "closed", "rejected", "cnc", "booking", "partialbooking", "interested", "rnr", "callback", "whatsapp", "student"])
     .optional(),
   assignedTo: z.string().optional().nullable(),
 });
 
 const updateStatusSchema = z.object({
-  status: z.enum(["new", "assigned", "followup", "closed", "rejected", "cnc", "booking", "partialbooking", "interested"]),
+  status: z.enum(["new", "assigned", "followup", "closed", "rejected", "cnc", "booking", "partialbooking", "interested", "rnr", "callback", "whatsapp", "student"]),
 });
 
 const assignLeadSchema = z.object({
@@ -509,7 +509,7 @@ export const bulkUpdateLeadStatus = async (
 ): Promise<void> => {
   try {
     const parsed = bulkLeadIdsSchema
-      .extend({ status: z.enum(["new", "assigned", "followup", "closed", "rejected", "cnc", "booking", "partialbooking", "interested"]) })
+      .extend({ status: z.enum(["new", "assigned", "followup", "closed", "rejected", "cnc", "booking", "partialbooking", "interested", "rnr", "callback", "whatsapp", "student"]) })
       .safeParse(req.body);
     if (!parsed.success) {
       sendError(res, "Validation failed", 400, parsed.error.flatten().fieldErrors);

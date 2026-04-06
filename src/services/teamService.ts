@@ -1,4 +1,4 @@
-import mongoose from "mongoose";
+import mongoose, { type PipelineStage } from "mongoose";
 import { Team } from "../models/Team.js";
 import { Lead } from "../models/Lead.js";
 import { User } from "../models/User.js";
@@ -212,7 +212,7 @@ export class TeamService {
     const stats = await Promise.all(
       allUsers.map(async (u) => {
         const id = u._id.toString();
-        const [total, assigned, followup, closed, rejected, cnc, booking, partialbooking, interested] = await Promise.all([
+        const [total, assigned, followup, closed, rejected, cnc, booking, partialbooking, interested, rnr, callback, whatsapp, student] = await Promise.all([
           Lead.countDocuments({ team: teamId, assignedTo: id }),
           Lead.countDocuments({ team: teamId, assignedTo: id, status: "assigned" }),
           Lead.countDocuments({ team: teamId, assignedTo: id, status: "followup" }),
@@ -222,8 +222,12 @@ export class TeamService {
           Lead.countDocuments({ team: teamId, assignedTo: id, status: "booking" }),
           Lead.countDocuments({ team: teamId, assignedTo: id, status: "partialbooking" }),
           Lead.countDocuments({ team: teamId, assignedTo: id, status: "interested" }),
+          Lead.countDocuments({ team: teamId, assignedTo: id, status: "rnr" }),
+          Lead.countDocuments({ team: teamId, assignedTo: id, status: "callback" }),
+          Lead.countDocuments({ team: teamId, assignedTo: id, status: "whatsapp" }),
+          Lead.countDocuments({ team: teamId, assignedTo: id, status: "student" }),
         ]);
-        return { user: u, total, assigned, followup, closed, rejected, cnc, booking, partialbooking, interested };
+        return { user: u, total, assigned, followup, closed, rejected, cnc, booking, partialbooking, interested, rnr, callback, whatsapp, student };
       })
     );
 
@@ -267,7 +271,7 @@ export class TeamService {
     const memberLoads = await Promise.all(
       membersList.map(async (m) => ({
         member: m,
-        count:  await Lead.countDocuments({ team: teamId, assignedTo: m._id, status: { $in: ["new", "assigned", "followup", "cnc", "booking", "interested"] } }),
+        count:  await Lead.countDocuments({ team: teamId, assignedTo: m._id, status: { $in: ["new", "assigned", "followup", "cnc", "booking", "interested", "rnr", "callback", "whatsapp", "student"] } }),
       }))
     );
     memberLoads.sort((a, b) => a.count - b.count);
@@ -371,7 +375,7 @@ export class TeamService {
       ...(team.members as unknown as (IUser & { _id: { toString(): string } })[]),
     ];
 
-    const [total, newCount, assigned, followup, closed, rejected, unassigned, cnc, booking, partialbooking, interested] =
+    const [total, newCount, assigned, followup, closed, rejected, unassigned, cnc, booking, partialbooking, interested, rnr, callback, whatsapp, student] =
       await Promise.all([
         Lead.countDocuments({ team: teamId }),
         Lead.countDocuments({ team: teamId, status: "new" }),
@@ -384,6 +388,10 @@ export class TeamService {
         Lead.countDocuments({ team: teamId, status: "booking" }),
         Lead.countDocuments({ team: teamId, status: "partialbooking" }),
         Lead.countDocuments({ team: teamId, status: "interested" }),
+        Lead.countDocuments({ team: teamId, status: "rnr" }),
+        Lead.countDocuments({ team: teamId, status: "callback" }),
+        Lead.countDocuments({ team: teamId, status: "whatsapp" }),
+        Lead.countDocuments({ team: teamId, status: "student" }),
       ]);
 
     const memberRankings = await Promise.all(
@@ -406,6 +414,10 @@ export class TeamService {
               booking:        { $sum: { $cond: [{ $eq: ["$status", "booking"] },        1, 0] } },
               partialbooking: { $sum: { $cond: [{ $eq: ["$status", "partialbooking"] }, 1, 0] } },
               interested:     { $sum: { $cond: [{ $eq: ["$status", "interested"] },     1, 0] } },
+              rnr:            { $sum: { $cond: [{ $eq: ["$status", "rnr"] },            1, 0] } },
+              callback:       { $sum: { $cond: [{ $eq: ["$status", "callback"] },       1, 0] } },
+              whatsapp:       { $sum: { $cond: [{ $eq: ["$status", "whatsapp"] },       1, 0] } },
+              student:        { $sum: { $cond: [{ $eq: ["$status", "student"] },        1, 0] } },
               // Sum all payments collected across all leads assigned to this member
               totalPayments:  { $sum: { $sum: "$payments.amount" } },
             },
@@ -414,7 +426,8 @@ export class TeamService {
 
         const d = agg ?? {
           total: 0, assigned: 0, followup: 0, closed: 0, rejected: 0,
-          cnc: 0, booking: 0, partialbooking: 0, interested: 0, totalPayments: 0,
+          cnc: 0, booking: 0, partialbooking: 0, interested: 0,
+          rnr: 0, callback: 0, whatsapp: 0, student: 0, totalPayments: 0,
         };
         const closureRate = d.total > 0 ? Math.round((d.closed / d.total) * 100) : 0;
         const isLeader = (team.leaders as unknown as { _id: { toString(): string } }[]).some(
@@ -432,6 +445,10 @@ export class TeamService {
           booking:        d.booking,
           partialbooking: d.partialbooking,
           interested:     d.interested,
+          rnr:            d.rnr,
+          callback:       d.callback,
+          whatsapp:       d.whatsapp,
+          student:        d.student,
           totalPayments:  d.totalPayments,
           closureRate,
         };
@@ -442,7 +459,7 @@ export class TeamService {
     memberRankings.sort((a, b) => b.totalPayments - a.totalPayments);
 
     return {
-      statusDistribution: { total, new: newCount, assigned, followup, closed, rejected, unassigned, cnc, booking, partialbooking, interested },
+      statusDistribution: { total, new: newCount, assigned, followup, closed, rejected, unassigned, cnc, booking, partialbooking, interested, rnr, callback, whatsapp, student },
       memberRankings,
     };
   }
@@ -804,6 +821,10 @@ export class TeamService {
           booking:        { $sum: { $cond: [{ $eq: ["$status", "booking"] },        1, 0] } },
           partialbooking: { $sum: { $cond: [{ $eq: ["$status", "partialbooking"] }, 1, 0] } },
           interested:     { $sum: { $cond: [{ $eq: ["$status", "interested"] },     1, 0] } },
+          rnr:            { $sum: { $cond: [{ $eq: ["$status", "rnr"] },            1, 0] } },
+          callback:       { $sum: { $cond: [{ $eq: ["$status", "callback"] },       1, 0] } },
+          whatsapp:       { $sum: { $cond: [{ $eq: ["$status", "whatsapp"] },       1, 0] } },
+          student:        { $sum: { $cond: [{ $eq: ["$status", "student"] },        1, 0] } },
           totalPayments:  { $sum: { $sum: "$payments.amount" } },
         },
       },
@@ -811,7 +832,8 @@ export class TeamService {
 
     const stats = agg ?? {
       total: 0, assigned: 0, followup: 0, closed: 0, rejected: 0,
-      cnc: 0, booking: 0, partialbooking: 0, interested: 0, totalPayments: 0,
+      cnc: 0, booking: 0, partialbooking: 0, interested: 0,
+      rnr: 0, callback: 0, whatsapp: 0, student: 0, totalPayments: 0,
     };
 
     const closureRate = stats.total > 0 ? Math.round((stats.closed / stats.total) * 100) : 0;
@@ -890,5 +912,99 @@ export class TeamService {
     ]);
 
     return { leads, pagination: buildPagination(total, page, limit) };
+  }
+
+  // ── Get all reminders for a team (team leader / admin access) ────────────────
+  async getTeamReminders(
+    teamId: string,
+    requesterId: string,
+    requesterRole: { isSystemRole?: boolean; roleName?: string },
+    filters: {
+      memberId?: string;
+      isDone?: string;
+      search?: string;
+      page?: string;
+      limit?: string;
+    },
+  ) {
+    const team = await Team.findById(teamId).lean();
+    if (!team) throw Object.assign(new Error("Team not found"), { statusCode: 404 });
+
+    const isSuperAdmin = requesterRole?.isSystemRole && requesterRole?.roleName === "Super Admin";
+    const leaderIds = (team.leaders as unknown as { toString(): string }[]).map((l) => l.toString());
+    const isLeaderOfThisTeam = leaderIds.includes(requesterId);
+
+    if (!isSuperAdmin && !isLeaderOfThisTeam) {
+      throw Object.assign(new Error("Access denied: only team leaders and admins can view team reminders"), { statusCode: 403 });
+    }
+
+    const page  = Math.max(1, parseInt(filters.page ?? "1", 10));
+    const limit = Math.min(50, Math.max(1, parseInt(filters.limit ?? "20", 10)));
+    const skip  = (page - 1) * limit;
+
+    // Build lead match — all leads assigned to any team member
+    const memberIds = [
+      ...(team.members as unknown as { toString(): string }[]).map((m) => m.toString()),
+      ...(team.leaders as unknown as { toString(): string }[]).map((l) => l.toString()),
+    ];
+
+    const leadMatch: Record<string, unknown> = { team: new mongoose.Types.ObjectId(teamId) };
+    if (filters.memberId) {
+      leadMatch.assignedTo = new mongoose.Types.ObjectId(filters.memberId);
+    } else {
+      leadMatch.assignedTo = { $in: memberIds.map((id) => new mongoose.Types.ObjectId(id)) };
+    }
+
+    // Aggregate to flatten reminders
+    const pipeline: PipelineStage[] = [
+      { $match: leadMatch },
+      { $project: {
+        name: 1, phone: 1, status: 1, assignedTo: 1,
+        reminders: 1,
+      }},
+      { $unwind: "$reminders" },
+    ];
+
+    // Filter by done/pending
+    if (filters.isDone === "true")       pipeline.push({ $match: { "reminders.isDone": true } });
+    else if (filters.isDone === "false") pipeline.push({ $match: { "reminders.isDone": false } });
+
+    // Filter by search (lead name, phone number, or reminder title/note)
+    if (filters.search) {
+      const re = new RegExp(filters.search, "i");
+      pipeline.push({ $match: { $or: [{ name: re }, { phone: re }, { "reminders.title": re }, { "reminders.note": re }] } });
+    }
+
+    // Count total before pagination
+    const countPipeline = [...pipeline, { $count: "total" }];
+    const [countResult] = await Lead.aggregate(countPipeline);
+    const total = (countResult as { total?: number })?.total ?? 0;
+
+    // Sort + paginate
+    pipeline.push(
+      { $sort: { "reminders.remindAt": 1 } },
+      { $skip: skip },
+      { $limit: limit },
+      { $lookup: { from: "users", localField: "assignedTo", foreignField: "_id", as: "assignedTo", pipeline: [{ $project: { name: 1, email: 1, designation: 1 } }] } },
+      { $unwind: { path: "$assignedTo", preserveNullAndEmptyArrays: true } },
+      { $lookup: { from: "users", localField: "reminders.createdBy", foreignField: "_id", as: "createdByArr", pipeline: [{ $project: { name: 1 } }] } },
+      { $addFields: { "reminders.createdBy": { $arrayElemAt: ["$createdByArr", 0] } } },
+      { $project: { createdByArr: 0 } },
+    );
+
+    const rows = await Lead.aggregate(pipeline);
+
+    const reminders = rows.map((r) => ({
+      reminder: r.reminders,
+      lead: {
+        _id:        r._id,
+        name:       r.name,
+        phone:      r.phone,
+        status:     r.status,
+        assignedTo: r.assignedTo ?? null,
+      },
+    }));
+
+    return { reminders, pagination: buildPagination(total, page, limit) };
   }
 }

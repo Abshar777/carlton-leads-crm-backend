@@ -561,3 +561,13 @@ This file documents every service in `backend/src/services/`. Read this before w
   ```
 - Rows missing required fields (name, phone) go to `invalid`
 - Rows with duplicate phones within the same upload go to `invalid`
+
+---
+
+## teamService — getTeamReminders (added 2026-04-06)
+
+**Method:** `getTeamReminders(teamId, requesterId, requesterRole, filters)`
+**Access:** Team leader of the team OR Super Admin only — returns 403 otherwise.
+**Filters:** `memberId`, `isDone` ("true"/"false"), `search` (lead name / reminder title / note), `page`, `limit`.
+**Returns:** `{ reminders: [{ reminder, lead: { _id, name, phone, status, assignedTo } }], pagination }`
+**Pipeline:** $match lead → $unwind reminders → optional filters → $sort remindAt ASC → paginate → $lookup assignedTo + createdBy.

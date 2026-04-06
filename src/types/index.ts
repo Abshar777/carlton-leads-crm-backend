@@ -136,7 +136,7 @@ export interface ICourse extends Document {
 }
 
 // ─── Lead ──────────────────────────────────────────────────────────────────────
-export type LeadStatus = "new" | "assigned" | "followup" | "closed" | "rejected" | "cnc" | "booking" | "partialbooking" | "interested";
+export type LeadStatus = "new" | "assigned" | "followup" | "closed" | "rejected" | "cnc" | "booking" | "partialbooking" | "interested" | "rnr" | "callback" | "whatsapp" | "student";
 
 export type ActivityAction =
   | "lead_created"
@@ -237,9 +237,10 @@ export interface LeadStats {
   booking: number;
   partialbooking: number;
   interested: number;
-  
-  
-  
+  rnr: number;
+  callback: number;
+  whatsapp: number;
+  student: number;
 }
 
 export interface ParsedLead {

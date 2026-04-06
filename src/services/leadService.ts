@@ -486,6 +486,10 @@ export class LeadService {
       "booking",
       "partialbooking",
       "interested",
+      "rnr",
+      "callback",
+      "whatsapp",
+      "student",
     ];
     const [total, ...statusCounts] = await Promise.all([
       Lead.countDocuments({ assignedTo: userId }),
@@ -505,6 +509,10 @@ export class LeadService {
       booking: statusCounts[6],
       partialbooking: statusCounts[7],
       interested: statusCounts[8],
+      rnr: statusCounts[9],
+      callback: statusCounts[10],
+      whatsapp: statusCounts[11],
+      student: statusCounts[12],
     };
   }
 
