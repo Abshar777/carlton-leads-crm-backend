@@ -158,16 +158,18 @@ export class TeamService {
       unassignedOnly?: string;
       dateFrom?: string;
       dateTo?: string;
+      course?: string;
     }
   ) {
     const page  = Math.max(1, parseInt(filters.page  ?? "1",  10));
-    const limit = Math.min(100, Math.max(1, parseInt(filters.limit ?? "10", 10)));
+    const limit = Math.min(500, Math.max(1, parseInt(filters.limit ?? "10", 10)));
     const skip  = (page - 1) * limit;
 
     const query: Record<string, unknown> = { team: teamId };
     if (filters.status && filters.status !== "all") query.status = filters.status;
     if (filters.assignedTo && filters.assignedTo !== "all") query.assignedTo = filters.assignedTo;
     if (filters.reporter   && filters.reporter   !== "all") query.reporter   = filters.reporter;
+    if (filters.course     && filters.course     !== "all") query.course     = filters.course;
     if (filters.unassignedOnly === "true") query.assignedTo = null;
     if (filters.search) {
       const regex = new RegExp(filters.search, "i");
@@ -335,11 +337,14 @@ export class TeamService {
     if (!lead)
       throw Object.assign(new Error("Lead not found in this team"), { statusCode: 404 });
 
-    // Member must be a member of this team
+    // Target must be a member OR a leader of this team
     const isMember = (team.members as unknown as mongoose.Types.ObjectId[]).some(
       (m) => m.toString() === memberId,
     );
-    if (!isMember)
+    const isLeader = (team.leaders as unknown as mongoose.Types.ObjectId[]).some(
+      (l) => l.toString() === memberId,
+    );
+    if (!isMember && !isLeader)
       throw Object.assign(new Error("User is not a member of this team"), { statusCode: 400 });
 
     const user = await User.findById(memberId);

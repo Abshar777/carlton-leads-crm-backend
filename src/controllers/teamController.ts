@@ -161,6 +161,7 @@ export async function getTeamLeads(
       unassignedOnly: req.query.unassignedOnly as string | undefined,
       dateFrom: req.query.dateFrom as string | undefined,
       dateTo: req.query.dateTo as string | undefined,
+      course: req.query.course as string | undefined,
     };
     const result = await teamService.getTeamLeads(req.params.id, filters);
     sendSuccess(
