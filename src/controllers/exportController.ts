@@ -193,7 +193,7 @@ export const exportPdf = async (
       reportService.getOverview(dateFrom, dateTo),
     ]);
 
-    const doc = new PDFDocument({ margin: 40, size: "A4", layout: "landscape" });
+    const doc = new PDFDocument({ margin: 40, size: "A4", layout: "landscape", bufferPages: true });
     const chunks: Buffer[] = [];
     doc.on("data", (c: Buffer) => chunks.push(c));
 
@@ -299,15 +299,15 @@ export const exportPdf = async (
 
     pdfTable(doc, memHeaders, memColW, memRows as (string | number)[][], 40, y);
 
-    // Footer on every page
-    const pageCount = (doc as unknown as { _pageBuffer: unknown[] })._pageBuffer?.length ?? 1;
-    for (let p = 0; p < pageCount; p++) {
-      doc.switchToPage(p);
+    // Footer on every page — use bufferedPageRange() since bufferPages:true keeps all pages
+    const range = (doc as unknown as { bufferedPageRange(): { start: number; count: number } }).bufferedPageRange();
+    for (let i = 0; i < range.count; i++) {
+      doc.switchToPage(range.start + i);
       doc.rect(0, doc.page.height - 28, doc.page.width, 28).fill(DARK);
       doc.fillColor(AMBER).font("Helvetica-Bold").fontSize(7)
          .text("Carlton CRM", 40, doc.page.height - 18);
       doc.fillColor(WHITE).font("Helvetica").fontSize(7)
-         .text(`Page ${p + 1}  ·  Confidential`, doc.page.width / 2, doc.page.height - 18, { align: "center", width: doc.page.width - 80 });
+         .text(`Page ${i + 1} of ${range.count}  ·  Confidential`, doc.page.width / 2, doc.page.height - 18, { align: "center", width: doc.page.width - 80 });
     }
 
     doc.end();
