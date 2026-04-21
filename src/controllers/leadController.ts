@@ -876,8 +876,39 @@ export const updateCallNotConnected = async (
       ? current + 1
       : Math.max(0, current - 1);
 
-    await Lead.updateOne({ _id: lead._id }, { $set: { callNotConnected: newCount } });
-    sendSuccess(res, "Call not connected count updated", { callNotConnected: newCount });
+    const update: Record<string, unknown> = { callNotConnected: newCount };
+    if (parsed.data.action === "increment") {
+      update.callCount = (lead.callCount ?? 0) + 1;
+    }
+    await Lead.updateOne({ _id: lead._id }, { $set: update });
+    sendSuccess(res, "Call not connected count updated", { callNotConnected: newCount, callCount: update.callCount ?? lead.callCount ?? 0 });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/** PATCH /leads/:id/call-count */
+export const updateCallCount = async (
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<void> => {
+  try {
+    const parsed = callNotConnectedSchema.safeParse(req.body);
+    if (!parsed.success) {
+      sendError(res, "Validation failed", 400, parsed.error.flatten().fieldErrors);
+      return;
+    }
+    const lead = await Lead.findById(req.params.id);
+    if (!lead) { sendError(res, "Lead not found", 404); return; }
+
+    const current = lead.callCount ?? 0;
+    const newCount = parsed.data.action === "increment"
+      ? current + 1
+      : Math.max(0, current - 1);
+
+    await Lead.updateOne({ _id: lead._id }, { $set: { callCount: newCount } });
+    sendSuccess(res, "Call count updated", { callCount: newCount });
   } catch (error) {
     next(error);
   }
