@@ -23,6 +23,8 @@ import {
   getTeamRevenue,
   getTeamRevenueTimeline,
   getTeamReminders,
+  getTeamSettings,
+  updateTeamSettings,
 } from "../controllers/teamController.js";
 import { exportTeamPdf } from "../controllers/exportController.js";
 import { authenticate } from "../middleware/auth.js";
@@ -74,6 +76,10 @@ router.get("/:id/revenue/timeline", checkPermission("leads", "view"), getTeamRev
 
 // ── Team reminders (team leader / admin) ──────────────────────────────────────
 router.get("/:id/reminders", checkPermission("leads", "view"), getTeamReminders);
+
+// ── Team settings ─────────────────────────────────────────────────────────────
+router.get(  "/:id/settings", checkPermission("leads", "view"), getTeamSettings);
+router.patch("/:id/settings", checkPermission("leads", "edit"), updateTeamSettings);
 
 // ── Export ─────────────────────────────────────────────────────────────────────
 router.get("/:id/export-pdf", checkPermission("leads", "view"), exportTeamPdf);

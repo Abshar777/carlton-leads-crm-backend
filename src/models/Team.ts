@@ -1,6 +1,16 @@
 import mongoose, { Schema } from "mongoose";
 import type { ITeam } from "../types/index.js";
 
+const teamSettingsSchema = new Schema(
+  {
+    autoAssign: { type: Boolean, default: false },
+    splitMode: { type: String, enum: ["round_robin", "equal_load"], default: "round_robin" },
+    roundRobinIndex: { type: Number, default: 0 },
+    includedMembers: [{ type: Schema.Types.ObjectId, ref: "User" }],
+  },
+  { _id: false }
+);
+
 const teamSchema = new Schema<ITeam>(
   {
     name: {
@@ -39,6 +49,10 @@ const teamSchema = new Schema<ITeam>(
         ref: "User",
       },
     ],
+    settings: {
+      type: teamSettingsSchema,
+      default: () => ({}),
+    },
   },
   { timestamps: true, versionKey: false }
 );

@@ -104,6 +104,13 @@ export interface PaginationQuery {
 }
 
 // ─── Team ─────────────────────────────────────────────────────────────────────
+export interface ITeamSettings {
+  autoAssign: boolean;
+  splitMode: "round_robin" | "equal_load";
+  roundRobinIndex: number;
+  includedMembers: Types.Array<Types.ObjectId | IUser>;
+}
+
 export interface ITeam extends Document {
   _id: Types.ObjectId;
   name: string;
@@ -111,8 +118,8 @@ export interface ITeam extends Document {
   leaders: Types.Array<Types.ObjectId | IUser>;
   members: Types.Array<Types.ObjectId | IUser>;
   status: "active" | "inactive";
-  // Members excluded from auto-assignment within this team (team-scoped, not global)
   inactiveMembers: Types.Array<Types.ObjectId | IUser>;
+  settings: ITeamSettings;
   createdAt: Date;
   updatedAt: Date;
 }

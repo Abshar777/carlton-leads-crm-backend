@@ -588,3 +588,55 @@ export async function getTeamReminders(
     next(err);
   }
 }
+
+// ─── Team Settings ────────────────────────────────────────────────────────────
+
+const teamSettingsSchema = z.object({
+  autoAssign:        z.boolean(),
+  splitMode:         z.enum(["round_robin", "equal_load"]),
+  includedMembers:   z.array(z.string()).optional(),
+});
+
+export async function getTeamSettings(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction,
+) {
+  try {
+    const team = await Team.findById(req.params.id).select("settings").lean();
+    if (!team) return sendError(res, "Team not found", 404);
+    sendSuccess(res, "Team settings fetched", team.settings ?? {});
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function updateTeamSettings(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction,
+) {
+  try {
+    const parsed = teamSettingsSchema.safeParse(req.body);
+    if (!parsed.success) return sendError(res, "Validation failed", 400, parsed.error.flatten().fieldErrors);
+
+    const team = await Team.findById(req.params.id);
+    if (!team) return sendError(res, "Team not found", 404);
+
+    const { autoAssign, splitMode, includedMembers } = parsed.data;
+
+    await Team.findByIdAndUpdate(req.params.id, {
+      $set: {
+        "settings.autoAssign":      autoAssign,
+        "settings.splitMode":       splitMode,
+        "settings.includedMembers": includedMembers ?? [],
+        // Reset round-robin index whenever settings are saved
+        "settings.roundRobinIndex": 0,
+      },
+    });
+
+    sendSuccess(res, "Team settings updated", { autoAssign, splitMode, includedMembers: includedMembers ?? [] });
+  } catch (err) {
+    next(err);
+  }
+}

@@ -102,6 +102,70 @@ async function notifyTeamLeaders(
   sendPushToUsers(leaderIds, payload).catch(() => null);
 }
 
+// ── Auto-split a lead to a team member based on team settings ────────────────
+async function autoSplitLead(teamId: string, leadId: string, performedById: string) {
+  const team = await Team.findById(teamId).populate("members", "_id").populate("leaders", "_id").lean();
+  if (!team || !team.settings?.autoAssign) return;
+
+  const allMemberIds = [
+    ...team.leaders.map((u: { _id: { toString(): string } }) => u._id.toString()),
+    ...team.members.map((u: { _id: { toString(): string } }) => u._id.toString()),
+  ].filter((id, i, arr) => arr.indexOf(id) === i); // dedupe
+
+  const inactiveSet = new Set(
+    (team.inactiveMembers as unknown as { toString(): string }[]).map((id) => id.toString())
+  );
+
+  // Use includedMembers if specified, otherwise all active members
+  const includedSet = (team.settings.includedMembers as unknown as { toString(): string }[]).map((id) => id.toString());
+  const pool = (includedSet.length > 0 ? includedSet : allMemberIds).filter((id) => !inactiveSet.has(id));
+
+  if (pool.length === 0) return;
+
+  let assigneeId: string;
+
+  if (team.settings.splitMode === "equal_load") {
+    const counts = await Promise.all(
+      pool.map((id) =>
+        Lead.countDocuments({ assignedTo: id, status: { $in: ["new", "assigned", "followup", "interested", "cnc", "callback", "rnr", "whatsapp"] } })
+      )
+    );
+    const minIndex = counts.indexOf(Math.min(...counts));
+    assigneeId = pool[minIndex];
+  } else {
+    // round_robin — use stored index, then advance it
+    const idx = (team.settings.roundRobinIndex ?? 0) % pool.length;
+    assigneeId = pool[idx];
+    await Team.updateOne({ _id: teamId }, { $set: { "settings.roundRobinIndex": (idx + 1) % pool.length } });
+  }
+
+  const user = await User.findById(assigneeId).select("_id name").lean();
+  if (!user) return;
+
+  await Lead.updateOne(
+    { _id: leadId },
+    { $set: { assignedTo: user._id, status: "assigned", assignedAt: new Date() } }
+  );
+
+  // Log the auto-assignment
+  await Lead.updateOne(
+    { _id: leadId },
+    {
+      $push: {
+        activityLogs: {
+          action: "lead_assigned",
+          description: `Auto-assigned to "${user.name}" via ${team.settings.splitMode === "equal_load" ? "equal load" : "round robin"}`,
+          performedBy: performedById,
+          createdAt: new Date(),
+        },
+      },
+    }
+  );
+
+  const splitLead = await Lead.findById(leadId).select("name").lean();
+  void notifyLeadAssignment(assigneeId, leadId, splitLead?.name ?? "", emitToUser);
+}
+
 // ─── LeadService ──────────────────────────────────────────────────────────────
 
 export class LeadService {
@@ -123,6 +187,11 @@ export class LeadService {
         },
       ],
     });
+
+    if (data.team && !data.assignedTo) {
+      void autoSplitLead(data.team, lead._id.toString(), reporterId);
+    }
+
     return buildPopulatedQuery(lead._id.toString());
   }
 
@@ -697,6 +766,7 @@ export class LeadService {
     );
 
     await lead.save();
+    void autoSplitLead(teamId, leadId, performedById);
     return buildPopulatedQuery(leadId);
   }
 
@@ -732,6 +802,7 @@ export class LeadService {
     );
 
     await lead.save();
+    void autoSplitLead(newTeamId, leadId, performedById);
     return buildPopulatedQuery(leadId);
   }
 
