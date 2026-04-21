@@ -43,8 +43,8 @@ function cleanPhone(raw: string): string {
 function mapPlatformToSource(platform?: string): string {
   if (!platform) return "other";
   const p = platform.toLowerCase();
-  if (p === "ig" || p === "instagram") return "social";
-  if (p === "fb" || p === "facebook")  return "social";
+  if (p === "ig" || p === "instagram") return "instagram";
+  if (p === "fb" || p === "facebook")  return "facebook";
   if (p === "wa" || p === "whatsapp")  return "whatsapp";
   if (p === "google" || p === "gads" || p === "google ads") return "google";
   return "other";
@@ -147,6 +147,8 @@ export const syncSheetLead = async (
       phone,
       email,
       source:   mapPlatformToSource(row.platform),
+      platform: row.platform?.trim() || undefined,
+      campaign: row.campaign_name?.trim() || undefined,
       status:   "new",
       reporter: reporterId,
       notes: [
@@ -263,6 +265,8 @@ export const syncSheetLeadsBatch = async (
         phone,
         email,
         source:   mapPlatformToSource(row.platform),
+        platform: row.platform?.trim() || undefined,
+        campaign: row.campaign_name?.trim() || undefined,
         status:   "new",
         reporter: reporterId,
         notes: [

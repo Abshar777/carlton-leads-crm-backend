@@ -196,6 +196,16 @@ const leadSchema = new Schema<ILead>(
       type: [activityLogSchema],
       default: [],
     },
+    platform: {
+      type: String,
+      trim: true,
+      maxlength: [50, "Platform cannot exceed 50 characters"],
+    },
+    campaign: {
+      type: String,
+      trim: true,
+      maxlength: [200, "Campaign cannot exceed 200 characters"],
+    },
     callNotConnected: {
       type: Number,
       default: 0,

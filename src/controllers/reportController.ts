@@ -157,6 +157,44 @@ export const getRevenueTimeline = async (
   }
 };
 
+/** GET /api/reports/sources?dateFrom=&dateTo=&team= */
+export const getSourceAnalytics = async (
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<void> => {
+  try {
+    const q = req.query as Record<string, string>;
+    const { dateFrom, dateTo } = getDateParams(q);
+    const teamId = q.team?.trim() || undefined;
+    const data = await svc.getSourceAnalytics(dateFrom, dateTo, teamId);
+    sendSuccess(res, "Source analytics fetched successfully", data);
+  } catch (err) {
+    next(err);
+  }
+};
+
+/** GET /api/reports/sources/:source/campaigns?dateFrom=&dateTo= */
+export const getSourceCampaigns = async (
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<void> => {
+  try {
+    const q      = req.query as Record<string, string>;
+    const source = req.params.source?.trim();
+    if (!source) {
+      sendError(res, "source param is required", 400);
+      return;
+    }
+    const { dateFrom, dateTo } = getDateParams(q);
+    const data = await svc.getSourceCampaigns(source, dateFrom, dateTo);
+    sendSuccess(res, "Campaign breakdown fetched successfully", data);
+  } catch (err) {
+    next(err);
+  }
+};
+
 /** GET /api/reports/revenue/teams?dateFrom=&dateTo= */
 export const getRevenueTeams = async (
   req: AuthenticatedRequest,

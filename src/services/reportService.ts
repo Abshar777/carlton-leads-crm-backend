@@ -827,7 +827,87 @@ export class ReportService {
     };
   }
 
-  // ── 11. Status breakdown by period (for comparing periods) ────────────────────
+  // ── 11. Source analytics (per source: status breakdown + revenue) ─────────────
+
+  async getSourceAnalytics(dateFrom?: string, dateTo?: string, teamId?: string) {
+    const match: Record<string, unknown> = {
+      ...this.buildDateFilter(dateFrom, dateTo),
+    };
+    if (teamId) {
+      match.team = new mongoose.Types.ObjectId(teamId);
+    }
+
+    const agg = await Lead.aggregate([
+      { $match: match },
+      {
+        $group: {
+          _id:            { $ifNull: ["$source", "other"] },
+          total:          { $sum: 1 },
+          revenue:        { $sum: { $sum: "$payments.amount" } },
+          ...this.statusSumFields(),
+        },
+      },
+      { $sort: { total: -1 } },
+    ]);
+
+    return agg.map((item) => {
+      const total   = item.total as number;
+      const closed  = (item.closed as number) ?? 0;
+      const booking = (item.booking as number) ?? 0;
+      const partial = (item.partialbooking as number) ?? 0;
+      return {
+        source:         (item._id as string) || "other",
+        total,
+        closed,
+        booking,
+        partialbooking: partial,
+        revenue:        (item.revenue as number) ?? 0,
+        conversionRate: total > 0 ? +((closed / total) * 100).toFixed(1) : 0,
+        bookingRate:    total > 0 ? (((booking + partial) / total) * 100).toFixed(1) : 0,
+      };
+    });
+  }
+
+  // ── 12. Campaign breakdown for a given source ─────────────────────────────────
+
+  async getSourceCampaigns(source: string, dateFrom?: string, dateTo?: string) {
+    const match: Record<string, unknown> = {
+      ...this.buildDateFilter(dateFrom, dateTo),
+      source,
+    };
+
+    const agg = await Lead.aggregate([
+      { $match: match },
+      {
+        $group: {
+          _id:            { $ifNull: ["$campaign", "(no campaign)"] },
+          total:          { $sum: 1 },
+          revenue:        { $sum: { $sum: "$payments.amount" } },
+          ...this.statusSumFields(),
+        },
+      },
+      { $sort: { total: -1 } },
+    ]);
+
+    return agg.map((item) => {
+      const total   = item.total as number;
+      const closed  = (item.closed as number) ?? 0;
+      const booking = (item.booking as number) ?? 0;
+      const partial = (item.partialbooking as number) ?? 0;
+      return {
+        campaignId:     (item._id as string) || "(no campaign)",
+        total,
+        closed,
+        booking,
+        partialbooking: partial,
+        revenue:        (item.revenue as number) ?? 0,
+        conversionRate: total > 0 ? +((closed / total) * 100).toFixed(1) : 0,
+        bookingRate:    total > 0 ? +(((booking + partial) / total) * 100).toFixed(1) : 0,
+      };
+    });
+  }
+
+  // ── 13. Status breakdown by period (for comparing periods) ────────────────────
 
   async getStatusByPeriod(
     period: "daily" | "weekly" | "monthly",
