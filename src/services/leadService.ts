@@ -103,7 +103,12 @@ async function notifyTeamLeaders(
 }
 
 // ── Auto-split a lead to a team member based on team settings ────────────────
-async function autoSplitLead(teamId: string, leadId: string, performedById: string) {
+async function autoSplitLead(
+  teamId: string,
+  leadId: string,
+  performedById: string,
+  overrideMemberIds?: string[],
+) {
   try {
     const team = await Team.findById(teamId).populate("members", "_id").populate("leaders", "_id").lean();
     if (!team || !team.settings?.autoAssign) return;
@@ -117,11 +122,16 @@ async function autoSplitLead(teamId: string, leadId: string, performedById: stri
       (team.inactiveMembers as unknown as { toString(): string }[]).map((id) => id.toString())
     );
 
-    // Use includedMembers if specified, otherwise all active members
-    // Filter includedMembers to only IDs that are still actual team members (prevents stale IDs)
-    const includedSet = (team.settings.includedMembers as unknown as { toString(): string }[])
-      .map((id) => id.toString())
-      .filter((id) => allMemberIds.includes(id));
+    // Priority: per-upload override → team.settings.includedMembers → all members
+    // In all cases, filter to valid active team members only
+    let includedSet: string[];
+    if (overrideMemberIds && overrideMemberIds.length > 0) {
+      includedSet = overrideMemberIds.filter((id) => allMemberIds.includes(id));
+    } else {
+      includedSet = (team.settings.includedMembers as unknown as { toString(): string }[])
+        .map((id) => id.toString())
+        .filter((id) => allMemberIds.includes(id));
+    }
     const pool = (includedSet.length > 0 ? includedSet : allMemberIds).filter((id) => !inactiveSet.has(id));
 
     if (pool.length === 0) return;
@@ -181,8 +191,22 @@ export class LeadService {
     data: ParsedLead & { status?: LeadStatus; assignedTo?: string; course?: string | null; team?: string | null },
     reporterId: string,
   ) {
+    // If no team was selected, auto-detect the creator's team so the lead
+    // is visible to the team leader and shows up in team-scoped reports.
+    let resolvedTeamId = data.team || null;
+    if (!resolvedTeamId) {
+      const creatorTeam = await Team.findOne({
+        $or: [{ members: reporterId }, { leaders: reporterId }],
+        status: "active",
+      }).select("_id").lean();
+      if (creatorTeam) {
+        resolvedTeamId = creatorTeam._id.toString();
+      }
+    }
+
     const lead = await Lead.create({
       ...data,
+      team: resolvedTeamId,
       assignedAt: data.assignedTo ? new Date() : null,
       reporter: reporterId,
       activityLogs: [
@@ -194,10 +218,6 @@ export class LeadService {
         },
       ],
     });
-
-    if (data.team && !data.assignedTo) {
-      await autoSplitLead(data.team, lead._id.toString(), reporterId);
-    }
 
     return buildPopulatedQuery(lead._id.toString());
   }
@@ -643,7 +663,7 @@ export class LeadService {
     return created;
   }
 
-  async autoAssignLeads(leadIds?: string[], teamIds?: string[]): Promise<AutoAssignResult> {
+  async autoAssignLeads(leadIds?: string[], teamIds?: string[], memberOverrides?: Record<string, string[]>): Promise<AutoAssignResult> {
     // Empty array means "no teams selected → skip auto-assign entirely"
     if (Array.isArray(teamIds) && teamIds.length === 0) {
       return { assigned: 0, results: [] };
@@ -749,6 +769,7 @@ export class LeadService {
           assignedTeams[i].team._id.toString(),
           lead._id.toString(),
           lead.reporter?.toString() ?? "",
+          memberOverrides?.[assignedTeams[i].team._id.toString()],
         )
       )
     );

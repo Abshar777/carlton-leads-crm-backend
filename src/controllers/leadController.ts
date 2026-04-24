@@ -126,6 +126,19 @@ export const uploadLeads = async (
       // malformed — treat as "all teams"
     }
 
+    // Parse per-team member overrides — { teamId: string[] }
+    let memberOverrides: Record<string, string[]> | undefined;
+    try {
+      if (req.body.memberOverrides) {
+        const parsed = JSON.parse(req.body.memberOverrides as string);
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+          memberOverrides = parsed as Record<string, string[]>;
+        }
+      }
+    } catch {
+      // malformed — ignore, fall back to team defaults
+    }
+
     let assignmentResult = {
       assigned: 0,
       results: [] as { leadId: string; assignedTo: string }[],
@@ -135,7 +148,7 @@ export const uploadLeads = async (
         const leadIds = (
           createdLeads as Array<{ _id: { toString(): string } }>
         ).map((l) => l._id.toString());
-        assignmentResult = await leadService.autoAssignLeads(leadIds, teamIds);
+        assignmentResult = await leadService.autoAssignLeads(leadIds, teamIds, memberOverrides);
       } catch {
         // Auto-assign failure should not block the upload
       }

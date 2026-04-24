@@ -116,11 +116,20 @@ This file documents every service in `backend/src/services/`. Read this before w
 - Counts `result.length` vs `docs.length` for failed count
 - Returns `{ created: result.length, failed: docs.length - result.length, errors: [...] }`
 
-#### `autoAssignLeads(teamId, userId)`
-- Gets unassigned leads for the team (`assignedTo: null, team: teamId`)
-- Fetches active members (see logicHistory.md for round-robin algorithm)
-- Distributes leads one by one, calls `emitToUser` per assignment
+#### `autoAssignLeads(leadIds?, teamIds?, memberOverrides?)`
+- Signature: `autoAssignLeads(leadIds?: string[], teamIds?: string[], memberOverrides?: Record<string, string[]>)`
+- Gets unassigned leads (optionally filtered by `leadIds` or `teamIds`)
+- Distributes leads across active teams via round-robin
+- After inter-team assignment, calls `autoSplitLead` for each lead passing `memberOverrides?.[teamId]`
 - Returns `{ assigned: number, assignments: [{leadId, assignedTo}] }`
+
+#### `autoSplitLead(teamId, leadId, performedById, overrideMemberIds?)`
+- Signature: `autoSplitLead(teamId: string, leadId: string, performedById: string, overrideMemberIds?: string[])`
+- If `overrideMemberIds` is provided and non-empty → uses those IDs (filtered to valid team members) as the assignment pool
+- Otherwise falls back to team's `settings.includedMembers` → then all active members
+- Assigns lead to member with fewest active leads (lowest workload)
+- Calls `emitToUser` on assignment
+- Wrapped in try-catch — errors are logged, never thrown (safe to await)
 
 #### `addNote(leadId, content, authorId)`
 - Finds lead (not lean)
