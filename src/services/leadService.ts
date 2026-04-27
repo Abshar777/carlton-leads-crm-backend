@@ -11,6 +11,7 @@ import type {
   ParsedLead,
   AutoAssignResult,
   ActivityAction,
+  CallOutcome,
   IRole,
 } from "../types/index.js";
 
@@ -925,5 +926,52 @@ export class LeadService {
       });
     const leads = await Lead.findOne({ phone: phoneNumber });
     return leads;
+  }
+
+  // ─── Call Log ────────────────────────────────────────────────────────────────
+
+  async addCallLog(
+    leadId: string,
+    calledById: string,
+    outcome: CallOutcome,
+    duration: number,
+    notes?: string,
+  ) {
+    const lead = await Lead.findById(leadId);
+    if (!lead) throw Object.assign(new Error("Lead not found"), { statusCode: 404 });
+
+    // Push call log entry
+    lead.callLogs.push({
+      calledAt: new Date(),
+      duration: Math.max(0, Math.round(duration)),
+      outcome,
+      notes: notes?.trim() || undefined,
+      calledBy: calledById,
+    } as never);
+
+    // Auto-increment the appropriate counter
+    if (outcome === "connected") {
+      lead.callCount = (lead.callCount ?? 0) + 1;
+    } else if (outcome === "not_connected") {
+      lead.callNotConnected = (lead.callNotConnected ?? 0) + 1;
+    }
+
+    // Activity log
+    const outcomeLabel =
+      outcome === "connected"
+        ? "Call connected"
+        : outcome === "not_connected"
+          ? "Call not connected"
+          : "Voicemail";
+
+    addLog(
+      lead as never,
+      "call_made",
+      `${outcomeLabel} — ${Math.floor(duration / 60)}m ${duration % 60}s`,
+      calledById,
+    );
+
+    await lead.save();
+    return buildPopulatedQuery(leadId).lean();
   }
 }

@@ -153,7 +153,19 @@ export type ActivityAction =
   | "team_assigned"
   | "note_added"
   | "note_updated"
-  | "note_deleted";
+  | "note_deleted"
+  | "call_made";
+
+export type CallOutcome = "connected" | "not_connected" | "voicemail";
+
+export interface ICallLog {
+  _id: Types.ObjectId;
+  calledAt: Date;
+  duration: number; // seconds
+  outcome: CallOutcome;
+  notes?: string;
+  calledBy: Types.ObjectId | IUser;
+}
 
 export interface ILeadNote {
   _id: Types.ObjectId;
@@ -213,6 +225,7 @@ export interface ILead extends Document {
   reminders: Types.DocumentArray<IReminder & Document>;
   payments: Types.DocumentArray<IPayment & Document>;
   activityLogs: Types.DocumentArray<IActivityLog & Document>;
+  callLogs: Types.DocumentArray<ICallLog & Document>;
   platform?: string;
   campaign?: string;
   callNotConnected: number;

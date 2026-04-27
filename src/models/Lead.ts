@@ -1,5 +1,5 @@
 import mongoose, { Schema } from "mongoose";
-import type { ILead, ILeadNote, IActivityLog, IReminder, IPayment } from "../types/index.js";
+import type { ILead, ILeadNote, IActivityLog, IReminder, IPayment, ICallLog } from "../types/index.js";
 
 // ─── Note Sub-Schema ──────────────────────────────────────────────────────────
 const leadNoteSchema = new Schema<ILeadNote & { createdAt: Date; updatedAt: Date }>(
@@ -37,6 +37,7 @@ const activityLogSchema = new Schema<IActivityLog>(
         "note_added",
         "note_updated",
         "note_deleted",
+        "call_made",
       ],
     },
     description: {
@@ -129,6 +130,30 @@ const paymentSchema = new Schema<IPayment>(
   { _id: true, timestamps: true }
 );
 
+// ─── Call Log Sub-Schema ──────────────────────────────────────────────────────
+const callLogSchema = new Schema<ICallLog>(
+  {
+    calledAt: { type: Date, default: Date.now },
+    duration: { type: Number, default: 0, min: 0 }, // seconds
+    outcome: {
+      type: String,
+      enum: ["connected", "not_connected", "voicemail"],
+      required: [true, "Call outcome is required"],
+    },
+    notes: {
+      type: String,
+      trim: true,
+      maxlength: [500, "Call notes cannot exceed 500 characters"],
+    },
+    calledBy: {
+      type: Schema.Types.ObjectId,
+      ref: "User",
+      required: [true, "Caller is required"],
+    },
+  },
+  { _id: true, timestamps: false }
+);
+
 // ─── Lead Schema ──────────────────────────────────────────────────────────────
 const leadSchema = new Schema<ILead>(
   {
@@ -215,6 +240,10 @@ const leadSchema = new Schema<ILead>(
       type: Number,
       default: 0,
       min: [0, "Call count cannot be negative"],
+    },
+    callLogs: {
+      type: [callLogSchema],
+      default: [],
     },
   },
   {

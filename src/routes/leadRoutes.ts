@@ -30,6 +30,7 @@ import {
   deletePayment,
   updateCallNotConnected,
   updateCallCount,
+  addCallLog,
 } from "../controllers/leadController.js";
 import { authenticate } from "../middleware/auth.js";
 import { checkPermission } from "../middleware/permissions.js";
@@ -79,6 +80,7 @@ router.patch("/:id/team",                checkPermission("leads", "edit"), assig
 router.patch("/:id/transfer",            checkPermission("leads", "edit"), transferLeadToTeam);
 router.patch("/:id/call-not-connected",  checkPermission("leads", "edit"), updateCallNotConnected);
 router.patch("/:id/call-count",          checkPermission("leads", "edit"), updateCallCount);
+router.post( "/:id/call-log",            checkPermission("leads", "edit"), addCallLog);
 router.delete("/:id", checkPermission("leads", "delete"), deleteLead);
 
 // ─── Notes (nested under lead) ────────────────────────────────────────────────

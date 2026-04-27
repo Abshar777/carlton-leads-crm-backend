@@ -947,3 +947,37 @@ export const deletePayment = async (
     next(error);
   }
 };
+
+// ─── Call Log ─────────────────────────────────────────────────────────────────
+
+const callLogSchema = z.object({
+  outcome: z.enum(["connected", "not_connected", "voicemail"]),
+  duration: z.number().min(0).default(0),
+  notes: z.string().max(500).optional(),
+});
+
+/** POST /leads/:id/call-log */
+export const addCallLog = async (
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<void> => {
+  try {
+    const parsed = callLogSchema.safeParse(req.body);
+    if (!parsed.success) {
+      sendError(res, "Validation failed", 400, parsed.error.flatten().fieldErrors);
+      return;
+    }
+    const calledById = req.user!.userId;
+    const lead = await leadService.addCallLog(
+      req.params.id,
+      calledById,
+      parsed.data.outcome,
+      parsed.data.duration,
+      parsed.data.notes,
+    );
+    sendSuccess(res, "Call logged successfully", lead);
+  } catch (error) {
+    next(error);
+  }
+};
