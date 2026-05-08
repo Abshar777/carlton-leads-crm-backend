@@ -824,10 +824,28 @@ export async function getTeamTracking(
       ...basePipeline,
       // Dedupe (user, lead, action) — if same action on same lead multiple times → count once
       { $group: { _id: { user: "$activityLogs.performedBy", lead: "$_id", action: "$activityLogs.action" } } },
-      // Count unique leads per (user, action)
       { $group: { _id: { user: "$_id.user", action: "$_id.action" }, count: { $sum: 1 } } },
-      // Collect all actions per user
       { $group: { _id: "$_id.user", actions: { $push: { action: "$_id.action", count: "$count" } } } },
+    ]);
+
+    // ── Agg 3: unique leads per (user, status changed TO) ──────────────────────
+    // Uses changes.status.to from status_changed log entries.
+    // Counts unique leads — if user changed same lead to "followup" twice → 1, not 2.
+    const statusAgg = await Lead.aggregate([
+      ...basePipeline,
+      { $match: { "activityLogs.action": "status_changed" } },
+      // Dedupe (user, lead, status_to) — same lead changed to same status multiple times → 1
+      {
+        $group: {
+          _id: {
+            user:     "$activityLogs.performedBy",
+            lead:     "$_id",
+            statusTo: "$activityLogs.changes.status.to",
+          },
+        },
+      },
+      { $group: { _id: { user: "$_id.user", statusTo: "$_id.statusTo" }, count: { $sum: 1 } } },
+      { $group: { _id: "$_id.user", statuses: { $push: { status: "$_id.statusTo", count: "$count" } } } },
     ]);
 
     // Build lookup maps
@@ -836,6 +854,9 @@ export async function getTeamTracking(
     );
     const actionMap = new Map<string, { action: string; count: number }[]>(
       actionAgg.map((r) => [r._id?.toString() ?? "", r.actions as { action: string; count: number }[]]),
+    );
+    const statusMap = new Map<string, { status: string; count: number }[]>(
+      statusAgg.map((r) => [r._id?.toString() ?? "", r.statuses as { status: string; count: number }[]]),
     );
 
     // Load team members (flat ObjectId[] — same pattern as member-report)
@@ -853,15 +874,27 @@ export async function getTeamTracking(
       (team.inactiveMembers as unknown as PopInactive[]).map((im) => im._id.toString()),
     );
 
-    const ZERO_ACTIONS = Object.fromEntries(TRACK_ACTIONS.map((a) => [a, 0]));
+    const ZERO_ACTIONS  = Object.fromEntries(TRACK_ACTIONS.map((a) => [a, 0]));
+    const ZERO_STATUSES = Object.fromEntries(ALL_STATUSES.map((s) => [`status_to_${s}`, 0]));
 
     const result = (team.members as unknown as PopMember[])
       .map((m) => {
-        const uid     = m._id?.toString() ?? "";
-        const actions = actionMap.get(uid) ?? [];
+        const uid      = m._id?.toString() ?? "";
+        const actions  = actionMap.get(uid) ?? [];
+        const statuses = statusMap.get(uid) ?? [];
+
         const actionObj = {
           ...ZERO_ACTIONS,
           ...Object.fromEntries(actions.map((a) => [a.action, a.count])),
+        };
+        // Prefix status keys with "status_to_" to avoid collisions with action keys
+        const statusObj = {
+          ...ZERO_STATUSES,
+          ...Object.fromEntries(
+            statuses
+              .filter((s) => s.status) // skip nulls from old logs without changes field
+              .map((s) => [`status_to_${s.status}`, s.count]),
+          ),
         };
 
         return {
@@ -872,6 +905,7 @@ export async function getTeamTracking(
           isActive:    !inactiveSet.has(uid),
           total:       totalMap.get(uid) ?? 0,
           ...actionObj,
+          ...statusObj,
         };
       })
       .sort((a, b) => b.total - a.total);
