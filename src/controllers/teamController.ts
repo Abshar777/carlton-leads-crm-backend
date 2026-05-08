@@ -730,9 +730,10 @@ export async function getTeamMemberReport(
 
     if (!team) { sendError(res, "Team not found", 404); return; }
 
-    const result = (team.members as { user: { _id: mongoose.Types.ObjectId; name: string; email: string; designation?: string } | mongoose.Types.ObjectId; isActive: boolean }[])
+    type PopMember = { user: { _id: mongoose.Types.ObjectId; name: string; email: string; designation?: string } | null; isActive: boolean };
+    const result = (team.members as unknown as PopMember[])
       .map((m) => {
-        const userObj = m.user as { _id: mongoose.Types.ObjectId; name: string; email: string; designation?: string } | null;
+        const userObj = m.user;
         const uid     = userObj?._id?.toString() ?? "";
         const stats   = statsMap.get(uid);
         return {
