@@ -10,6 +10,7 @@ import sheetsRoutes from "./sheetsRoutes.js";
 import reportRoutes from "./reportRoutes.js";
 import pushRoutes from "./pushRoutes.js";
 import aiRoutes from "./aiRoutes.js";
+import backupRoutes from "./backupRoutes.js";
 
 const router = Router();
 
@@ -24,6 +25,7 @@ router.use("/sheets",  sheetsRoutes);
 router.use("/reports", reportRoutes);
 router.use("/push",    pushRoutes);
 router.use("/ai",      aiRoutes);
+router.use("/backup",  backupRoutes);
 
 // Health check
 router.get("/health", (_req, res) => {

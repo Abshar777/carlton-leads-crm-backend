@@ -42,3 +42,4 @@ next-env.d.ts
 
 dist
 sheets
+backup-manifest.json

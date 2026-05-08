@@ -10,7 +10,9 @@
     "build": "bun build src/index.ts --outdir dist --target bun",
     "test": "bun test tests/ --timeout 15000",
     "test:teams": "bun test tests/teams/ --timeout 15000",
-    "test:verbose": "bun test tests/ --timeout 15000 --reporter=verbose"
+    "test:verbose": "bun test tests/ --timeout 15000 --reporter=verbose",
+    "backup": "bun scripts/run-backup.ts",
+    "recover": "bun scripts/recover.ts"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
