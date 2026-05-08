@@ -254,6 +254,9 @@ const leadSchema = new Schema<ILead>(
 
 leadSchema.index({ course: 1 });
 
+// Unique index on phone — enforces no duplicate numbers at DB level
+leadSchema.index({ phone: 1 }, { unique: true, sparse: true });
+
 // Sparse unique index on email (allows multiple nulls)
 leadSchema.index({ email: 1 });
 leadSchema.index({ status: 1 });

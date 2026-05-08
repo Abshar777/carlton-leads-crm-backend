@@ -14,10 +14,12 @@ const excelService = new ExcelService();
 
 // ─── Validation Schemas ───────────────────────────────────────────────────────
 
+const PHONE_RE = /^(\+)?[\d\s\-().]{7,20}$/;
+
 const createLeadSchema = z.object({
   name: z.string().min(1, "Name is required").max(100),
   email: z.string().email("Invalid email").optional().or(z.literal("")),
-  phone: z.string().min(1, "Phone is required").max(20),
+  phone: z.string().min(1, "Phone is required").max(20).regex(PHONE_RE, "Invalid phone number format"),
   source: z.string().max(100).optional(),
   course: z.string().optional().nullable(),
   status: z
@@ -35,7 +37,7 @@ const updateLeadSchema = z.object({
     .optional()
     .or(z.literal(""))
     .nullable(),
-  phone: z.string().min(1).max(20).optional(),
+  phone: z.string().min(1).max(20).regex(PHONE_RE, "Invalid phone number format").optional(),
   source: z.string().max(100).optional().nullable(),
   course: z.string().optional().nullable(),
   status: z
@@ -106,14 +108,13 @@ export const uploadLeads = async (
     }
 
     const reporterId = req.user!.userId;
-    let createdLeads: unknown[] = [];
+    let bulkResult: { inserted: unknown[]; skipped: number; skippedPhones: string[] } = { inserted: [], skipped: 0, skippedPhones: [] };
 
     if (parseResult.valid.length > 0) {
-      createdLeads = await leadService.bulkCreateLeads(
-        parseResult.valid,
-        reporterId,
-      );
+      bulkResult = await leadService.bulkCreateLeads(parseResult.valid, reporterId) as typeof bulkResult;
     }
+
+    const createdLeads = bulkResult.inserted;
 
     // teamIds may arrive as a JSON string in the multipart form body
     let teamIds: string[] | undefined;
@@ -160,6 +161,8 @@ export const uploadLeads = async (
       {
         total: parseResult.valid.length + parseResult.invalid.length,
         created: createdLeads.length,
+        skipped: bulkResult.skipped,
+        skippedPhones: bulkResult.skippedPhones,
         assigned: assignmentResult.assigned,
         invalid: parseResult.invalid.length,
         invalidDetails: parseResult.invalid,

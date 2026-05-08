@@ -15,6 +15,43 @@ import type {
   IRole,
 } from "../types/index.js";
 
+// ─── Phone normalization ──────────────────────────────────────────────────────
+
+/**
+ * Normalize a raw phone string to a canonical form for storage & uniqueness.
+ *
+ * Indian numbers  → 10 digits, no prefix (e.g. "9876543210")
+ * International   → "+" + all digits  (e.g. "+971557352483")
+ *
+ * Returns null if the input cannot be made into a valid number.
+ */
+export function normalizePhone(raw: string): string | null {
+  const trimmed = raw.trim();
+  const hasPlus = trimmed.startsWith("+");
+  const digits  = trimmed.replace(/\D/g, ""); // strip everything non-digit
+
+  // Indian: strip +91 / 91 / 0 prefix → must leave exactly 10 digits starting 6-9
+  if (digits.length === 12 && digits.startsWith("91") && /^[6-9]$/.test(digits[2])) {
+    return digits.slice(2);
+  }
+  if (digits.length === 11 && digits.startsWith("0") && /^[6-9]$/.test(digits[1])) {
+    return digits.slice(1);
+  }
+  if (digits.length === 10 && /^[6-9]$/.test(digits[0])) {
+    return digits;
+  }
+
+  // International (non-Indian +XX...) — keep "+" prefix
+  if (hasPlus && digits.length >= 7 && digits.length <= 15) {
+    // exclude +91 Indian numbers already handled above
+    if (!digits.startsWith("91") || digits.length !== 12) {
+      return "+" + digits;
+    }
+  }
+
+  return null; // invalid
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function buildPopulatedQuery(id: string) {
@@ -192,6 +229,21 @@ export class LeadService {
     data: ParsedLead & { status?: LeadStatus; assignedTo?: string; course?: string | null; team?: string | null },
     reporterId: string,
   ) {
+    // Normalize + validate phone
+    const normalizedPhone = normalizePhone(data.phone);
+    if (!normalizedPhone) {
+      throw Object.assign(new Error("Invalid phone number. Please enter a valid mobile number."), { statusCode: 400 });
+    }
+
+    // Duplicate check
+    const existing = await Lead.findOne({ phone: normalizedPhone }).select("_id name phone").lean();
+    if (existing) {
+      throw Object.assign(
+        new Error(`A lead with this phone number already exists (${existing.name}).`),
+        { statusCode: 409, existingId: existing._id.toString() },
+      );
+    }
+
     // If no team was selected, auto-detect the creator's team so the lead
     // is visible to the team leader and shows up in team-scoped reports.
     let resolvedTeamId = data.team || null;
@@ -207,6 +259,7 @@ export class LeadService {
 
     const lead = await Lead.create({
       ...data,
+      phone: normalizedPhone,
       team: resolvedTeamId,
       assignedAt: data.assignedTo ? new Date() : null,
       reporter: reporterId,
@@ -320,6 +373,24 @@ export class LeadService {
     const lead = await Lead.findById(id);
     if (!lead)
       throw Object.assign(new Error("Lead not found"), { statusCode: 404 });
+
+    // Normalize + dedupe phone if it's being updated
+    if (data.phone) {
+      const normalizedPhone = normalizePhone(data.phone);
+      if (!normalizedPhone) {
+        throw Object.assign(new Error("Invalid phone number. Please enter a valid mobile number."), { statusCode: 400 });
+      }
+      if (normalizedPhone !== lead.phone) {
+        const clash = await Lead.findOne({ phone: normalizedPhone, _id: { $ne: lead._id } }).select("_id name").lean();
+        if (clash) {
+          throw Object.assign(
+            new Error(`Phone number already used by another lead (${clash.name}).`),
+            { statusCode: 409 },
+          );
+        }
+      }
+      data.phone = normalizedPhone;
+    }
 
     // Track field changes for the log
     const trackedFields: Array<keyof typeof data> = [
@@ -629,9 +700,40 @@ export class LeadService {
   async bulkCreateLeads(leads: ParsedLead[], reporterId: string) {
     const EMAIL_RE = /^\S+@\S+\.\S+$/;
 
-    const leadsWithReporter = leads.map((lead) => {
-      // Only keep email if it looks like a real address — "No Email" / blanks
-      // would fail the Lead schema regex and cause insertMany to reject the row.
+    // 1. Normalize phones + dedupe within the batch (keep first occurrence)
+    const seenInBatch = new Set<string>();
+    const validLeads: (ParsedLead & { _normalizedPhone: string })[] = [];
+    const skippedInvalid: string[] = [];
+
+    for (const lead of leads) {
+      const normalized = normalizePhone(lead.phone);
+      if (!normalized) {
+        skippedInvalid.push(lead.phone);
+        continue;
+      }
+      if (seenInBatch.has(normalized)) continue; // duplicate within batch
+      seenInBatch.add(normalized);
+      validLeads.push({ ...lead, phone: normalized, _normalizedPhone: normalized });
+    }
+
+    // 2. Single query to find all phones already in DB
+    const allNormalized = validLeads.map((l) => l._normalizedPhone);
+    const existingInDB = await Lead.find({ phone: { $in: allNormalized } })
+      .select("phone")
+      .lean();
+    const existingPhones = new Set(existingInDB.map((l) => l.phone));
+
+    // 3. Filter out DB duplicates
+    const toInsert = validLeads.filter((l) => !existingPhones.has(l._normalizedPhone));
+    const skippedDuplicates = validLeads
+      .filter((l) => existingPhones.has(l._normalizedPhone))
+      .map((l) => l._normalizedPhone);
+
+    if (toInsert.length === 0) {
+      return { inserted: [], skipped: skippedDuplicates.length + skippedInvalid.length, skippedPhones: [...skippedDuplicates, ...skippedInvalid] };
+    }
+
+    const leadsWithReporter = toInsert.map(({ _normalizedPhone: _, ...lead }) => {
       const email =
         lead.email && EMAIL_RE.test(lead.email.trim())
           ? lead.email.trim().toLowerCase()
@@ -639,10 +741,8 @@ export class LeadService {
 
       return {
         ...lead,
-        email,                        // undefined = field omitted from document
+        email,
         reporter: reporterId,
-        // notes must be an ARRAY of sub-documents, not a plain object.
-        // Passing an object here caused every row to fail Mongoose validation.
         notes: lead.notes
           ? [{ content: lead.notes, author: reporterId }]
           : [],
@@ -657,10 +757,8 @@ export class LeadService {
       };
     });
 
-    const created = await Lead.insertMany(leadsWithReporter, {
-      ordered: false,
-    });
-    return created;
+    const created = await Lead.insertMany(leadsWithReporter, { ordered: false });
+    return { inserted: created, skipped: skippedDuplicates.length + skippedInvalid.length, skippedPhones: [...skippedDuplicates, ...skippedInvalid] };
   }
 
   async autoAssignLeads(leadIds?: string[], teamIds?: string[], memberOverrides?: Record<string, string[]>): Promise<AutoAssignResult> {
