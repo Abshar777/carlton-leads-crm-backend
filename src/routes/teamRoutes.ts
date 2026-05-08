@@ -9,6 +9,7 @@ import {
   getTeamLeads,
   getTeamMemberStats,
   getTeamMemberReport,
+  getTeamTracking,
   autoAssignTeamLeads,
   assignLeadToMember,
   getTeamDashboard,
@@ -50,6 +51,7 @@ router.get( "/:id/dashboard",              checkPermission("leads", "view"), get
 router.get( "/:id/leads",                  checkPermission("leads", "view"), getTeamLeads);
 router.get( "/:id/member-stats",           checkPermission("leads", "view"), getTeamMemberStats);
 router.get( "/:id/member-report",          checkPermission("leads", "view"), getTeamMemberReport);
+router.get( "/:id/tracking",              checkPermission("leads", "view"), getTeamTracking);
 router.get( "/:id/logs",                   checkPermission("leads", "view"), getTeamLogs);
 router.post("/:id/auto-assign",            checkPermission("leads", "edit"), autoAssignTeamLeads);
 

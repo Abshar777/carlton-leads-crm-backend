@@ -763,3 +763,121 @@ export async function getTeamMemberReport(
     next(err);
   }
 }
+
+// ─── All activity actions tracked ────────────────────────────────────────────
+const TRACK_ACTIONS = [
+  "lead_created",
+  "lead_updated",
+  "status_changed",
+  "lead_assigned",
+  "note_added",
+  "call_made",
+] as const;
+
+type TrackAction = (typeof TRACK_ACTIONS)[number];
+
+/**
+ * GET /:id/tracking?dateFrom=YYYY-MM-DD&dateTo=YYYY-MM-DD
+ *
+ * Returns per-member activity counts for the given date window.
+ * Each column = number of UNIQUE leads the member performed that action on.
+ * e.g. if Robert changed status on 3 leads, status_changed = 3 (not 3 × N changes per lead).
+ * Members with zero activity in the period are still included (all zeroes).
+ */
+export async function getTeamTracking(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction,
+) {
+  try {
+    const teamId  = req.params.id;
+    const { dateFrom, dateTo } = req.query as { dateFrom?: string; dateTo?: string };
+
+    if (!mongoose.isValidObjectId(teamId)) {
+      sendError(res, "Invalid team id", 400); return;
+    }
+
+    // IST-aware date range on activityLogs.createdAt
+    const logDateFilter: Record<string, Date> = {};
+    if (dateFrom) logDateFilter.$gte = new Date(dateFrom + "T00:00:00.000+05:30");
+    if (dateTo)   logDateFilter.$lte = new Date(dateTo   + "T23:59:59.999+05:30");
+
+    const teamObjId = new mongoose.Types.ObjectId(teamId);
+
+    const basePipeline = [
+      { $match: { team: teamObjId } },
+      { $unwind: "$activityLogs" },
+      ...(Object.keys(logDateFilter).length
+        ? [{ $match: { "activityLogs.createdAt": logDateFilter } }]
+        : []),
+    ] as mongoose.PipelineStage[];
+
+    // ── Agg 1: total unique leads touched per user ─────────────────────────────
+    const totalAgg = await Lead.aggregate([
+      ...basePipeline,
+      { $group: { _id: { user: "$activityLogs.performedBy", lead: "$_id" } } },
+      { $group: { _id: "$_id.user", total: { $sum: 1 } } },
+    ]);
+
+    // ── Agg 2: unique leads per (user, action) ─────────────────────────────────
+    const actionAgg = await Lead.aggregate([
+      ...basePipeline,
+      // Dedupe (user, lead, action) — if same action on same lead multiple times → count once
+      { $group: { _id: { user: "$activityLogs.performedBy", lead: "$_id", action: "$activityLogs.action" } } },
+      // Count unique leads per (user, action)
+      { $group: { _id: { user: "$_id.user", action: "$_id.action" }, count: { $sum: 1 } } },
+      // Collect all actions per user
+      { $group: { _id: "$_id.user", actions: { $push: { action: "$_id.action", count: "$count" } } } },
+    ]);
+
+    // Build lookup maps
+    const totalMap = new Map<string, number>(
+      totalAgg.map((r) => [r._id?.toString() ?? "", r.total as number]),
+    );
+    const actionMap = new Map<string, { action: string; count: number }[]>(
+      actionAgg.map((r) => [r._id?.toString() ?? "", r.actions as { action: string; count: number }[]]),
+    );
+
+    // Load team members (flat ObjectId[] — same pattern as member-report)
+    const team = await Team.findById(teamId)
+      .populate("members",        "name email designation")
+      .populate("inactiveMembers", "_id")
+      .lean();
+
+    if (!team) { sendError(res, "Team not found", 404); return; }
+
+    type PopMember   = { _id: mongoose.Types.ObjectId; name: string; email: string; designation?: string };
+    type PopInactive = { _id: mongoose.Types.ObjectId };
+
+    const inactiveSet = new Set<string>(
+      (team.inactiveMembers as unknown as PopInactive[]).map((im) => im._id.toString()),
+    );
+
+    const ZERO_ACTIONS = Object.fromEntries(TRACK_ACTIONS.map((a) => [a, 0]));
+
+    const result = (team.members as unknown as PopMember[])
+      .map((m) => {
+        const uid     = m._id?.toString() ?? "";
+        const actions = actionMap.get(uid) ?? [];
+        const actionObj = {
+          ...ZERO_ACTIONS,
+          ...Object.fromEntries(actions.map((a) => [a.action, a.count])),
+        };
+
+        return {
+          userId:      uid,
+          name:        m.name        ?? "Unknown",
+          email:       m.email       ?? "",
+          designation: m.designation ?? "",
+          isActive:    !inactiveSet.has(uid),
+          total:       totalMap.get(uid) ?? 0,
+          ...actionObj,
+        };
+      })
+      .sort((a, b) => b.total - a.total);
+
+    sendSuccess(res, "Team tracking fetched", result);
+  } catch (err) {
+    next(err);
+  }
+}
