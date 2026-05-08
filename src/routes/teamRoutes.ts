@@ -8,6 +8,7 @@ import {
   deleteTeam,
   getTeamLeads,
   getTeamMemberStats,
+  getTeamMemberReport,
   autoAssignTeamLeads,
   assignLeadToMember,
   getTeamDashboard,
@@ -48,6 +49,7 @@ router.delete("/:id", checkPermission("leads", "delete"), deleteTeam);
 router.get( "/:id/dashboard",              checkPermission("leads", "view"), getTeamDashboard);
 router.get( "/:id/leads",                  checkPermission("leads", "view"), getTeamLeads);
 router.get( "/:id/member-stats",           checkPermission("leads", "view"), getTeamMemberStats);
+router.get( "/:id/member-report",          checkPermission("leads", "view"), getTeamMemberReport);
 router.get( "/:id/logs",                   checkPermission("leads", "view"), getTeamLogs);
 router.post("/:id/auto-assign",            checkPermission("leads", "edit"), autoAssignTeamLeads);
 

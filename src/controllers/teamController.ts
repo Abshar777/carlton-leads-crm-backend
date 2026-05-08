@@ -1,5 +1,6 @@
 import type { Response, NextFunction } from "express";
 import { z } from "zod";
+import mongoose from "mongoose";
 import type { AuthenticatedRequest } from "../types/index.js";
 import { TeamService } from "../services/teamService.js";
 import { ReportService } from "../services/reportService.js";
@@ -7,6 +8,7 @@ import { sendError, sendSuccess } from "../utils/response.js";
 import { emitTeamUpdate, emitToUser } from "../socket.js";
 import { sendPushToUsers } from "../services/pushService.js";
 import { Team } from "../models/Team.js";
+import { Lead } from "../models/Lead.js";
 
 const teamService   = new TeamService();
 const reportService = new ReportService();
@@ -636,6 +638,116 @@ export async function updateTeamSettings(
     });
 
     sendSuccess(res, "Team settings updated", { autoAssign, splitMode, includedMembers: includedMembers ?? [] });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// ── Team member report (with date filtering) ──────────────────────────────────
+
+const ALL_STATUSES = [
+  "new","assigned","followup","interested","cnc","booking",
+  "partialbooking","closed","rejected","rnr","callback","whatsapp","student",
+] as const;
+
+/**
+ * GET /:id/member-report?dateFrom=YYYY-MM-DD&dateTo=YYYY-MM-DD
+ * Returns per-member lead status counts for the given date window.
+ * Members with zero leads in the period are still included (all zeroes).
+ */
+export async function getTeamMemberReport(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction,
+) {
+  try {
+    const teamId  = req.params.id;
+    const { dateFrom, dateTo } = req.query as { dateFrom?: string; dateTo?: string };
+
+    if (!mongoose.isValidObjectId(teamId)) {
+      sendError(res, "Invalid team id", 400); return;
+    }
+
+    // Date range filter on createdAt
+    const dateFilter: Record<string, Date> = {};
+    if (dateFrom) dateFilter.$gte = new Date(dateFrom + "T00:00:00.000Z");
+    if (dateTo)   dateFilter.$lte = new Date(dateTo   + "T23:59:59.999Z");
+
+    const matchFilter: Record<string, unknown> = {
+      team: new mongoose.Types.ObjectId(teamId),
+    };
+    if (dateFrom || dateTo) matchFilter.createdAt = dateFilter;
+
+    // Status sum fields for the aggregation
+    const statusSums: Record<string, unknown> = {};
+    for (const s of ALL_STATUSES) {
+      statusSums[s] = { $sum: { $cond: [{ $eq: ["$status", s] }, 1, 0] } };
+    }
+
+    const agg = await Lead.aggregate([
+      { $match: matchFilter },
+      {
+        $group: {
+          _id:   "$assignedTo",
+          total: { $sum: 1 },
+          ...statusSums,
+        },
+      },
+      {
+        $lookup: {
+          from:         "users",
+          localField:   "_id",
+          foreignField: "_id",
+          as:           "user",
+        },
+      },
+      { $unwind: { path: "$user", preserveNullAndEmptyArrays: true } },
+      {
+        $project: {
+          _id:         0,
+          userId:      "$_id",
+          name:        { $ifNull: ["$user.name",        "Unassigned"] },
+          email:       { $ifNull: ["$user.email",       ""] },
+          designation: { $ifNull: ["$user.designation", ""] },
+          total:       1,
+          ...Object.fromEntries(ALL_STATUSES.map((s) => [s, 1])),
+        },
+      },
+    ]);
+
+    // Build a map of userId → stats so we can fill in zeros for members
+    // who had no leads in this period
+    const statsMap = new Map<string, (typeof agg)[0]>(
+      agg.map((r) => [r.userId?.toString() ?? "", r]),
+    );
+
+    const ZERO = Object.fromEntries(ALL_STATUSES.map((s) => [s, 0]));
+
+    // Load the team to get the full member list
+    const team = await Team.findById(teamId)
+      .populate("members.user", "name email designation")
+      .lean();
+
+    if (!team) { sendError(res, "Team not found", 404); return; }
+
+    const result = (team.members as { user: { _id: mongoose.Types.ObjectId; name: string; email: string; designation?: string } | mongoose.Types.ObjectId; isActive: boolean }[])
+      .map((m) => {
+        const userObj = m.user as { _id: mongoose.Types.ObjectId; name: string; email: string; designation?: string } | null;
+        const uid     = userObj?._id?.toString() ?? "";
+        const stats   = statsMap.get(uid);
+        return {
+          userId:      uid,
+          name:        userObj?.name        ?? "Unknown",
+          email:       userObj?.email       ?? "",
+          designation: userObj?.designation ?? "",
+          isActive:    m.isActive,
+          total:       stats?.total ?? 0,
+          ...(stats ? Object.fromEntries(ALL_STATUSES.map((s) => [s, stats[s] ?? 0])) : ZERO),
+        };
+      })
+      .sort((a, b) => b.total - a.total);
+
+    sendSuccess(res, "Team member report fetched", result);
   } catch (err) {
     next(err);
   }
