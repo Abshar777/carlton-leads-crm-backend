@@ -24,6 +24,8 @@ export const CRM_MODULES = [
   "reminders",
   "reports",
   "settings",
+  "whatsapp",
+  "ai-agent",
 ] as const;
 
 export type CrmModule = (typeof CRM_MODULES)[number];
