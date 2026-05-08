@@ -19,7 +19,7 @@ const app = express();
 app.use(helmet());
 app.use(
   cors({
-    origin: [env.CLIENT_URL, "http://localhost:3001", "http://localhost:19006"],
+    origin: [env.CLIENT_URL, "http://localhost:3001", "http://localhost:19006","https://crm.carltonedu.com"],
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],

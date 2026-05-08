@@ -47,3 +47,5 @@ backup-manifest.json
 # WhatsApp session (Baileys auth credentials)
 whatsapp-session/
 whatsapp-sessions/
+
+
