@@ -10,6 +10,7 @@ import routes from "./routes/index.js";
 import { errorHandler, notFound } from "./middleware/errorHandler.js";
 import { initSocket } from "./socket.js";
 import { startReminderScheduler } from "./services/reminderScheduler.js";
+import { startBackupScheduler }   from "./services/backupService.js";
 
 const app = express();
 
@@ -17,7 +18,7 @@ const app = express();
 app.use(helmet());
 app.use(
   cors({
-    origin: [env.CLIENT_URL, "http://localhost:3001" ],
+    origin: [env.CLIENT_URL, "http://localhost:3001", "http://localhost:19006"],
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
@@ -47,6 +48,7 @@ const start = async () => {
     console.log(`📋 API Base: http://localhost:${env.PORT}/api/v1`);
     // Start after server is listening so Socket.IO is ready for emitToUser
     startReminderScheduler();
+    startBackupScheduler();
   });
 };
 

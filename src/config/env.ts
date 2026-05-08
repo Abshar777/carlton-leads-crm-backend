@@ -16,6 +16,8 @@ const envSchema = z.object({
   VAPID_PRIVATE_KEY:   z.string().default(""),
   VAPID_SUBJECT:       z.string().default("mailto:admin@carltoncrm.com"),
   GEMINI_API_KEY:      z.string().default(""),
+  TELEGRAM_BOT_TOKEN:  z.string().default(""),
+  TELEGRAM_CHAT_ID:    z.string().default(""),
 });
 
 const parsed = envSchema.safeParse(process.env);
