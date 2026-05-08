@@ -724,24 +724,34 @@ export async function getTeamMemberReport(
     const ZERO = Object.fromEntries(ALL_STATUSES.map((s) => [s, 0]));
 
     // Load the team to get the full member list
+    // members is a flat ObjectId[] — populate directly (NOT "members.user")
+    // inactiveMembers is a separate flat ObjectId[] for active/inactive status
     const team = await Team.findById(teamId)
-      .populate("members.user", "name email designation")
+      .populate("members",        "name email designation")
+      .populate("inactiveMembers", "_id")
       .lean();
 
     if (!team) { sendError(res, "Team not found", 404); return; }
 
-    type PopMember = { user: { _id: mongoose.Types.ObjectId; name: string; email: string; designation?: string } | null; isActive: boolean };
+    // After populate, each element in members IS the User document
+    type PopMember = { _id: mongoose.Types.ObjectId; name: string; email: string; designation?: string };
+    type PopInactive = { _id: mongoose.Types.ObjectId };
+
+    // Build a set of inactive userIds for O(1) lookup
+    const inactiveSet = new Set<string>(
+      (team.inactiveMembers as unknown as PopInactive[]).map((im) => im._id.toString()),
+    );
+
     const result = (team.members as unknown as PopMember[])
       .map((m) => {
-        const userObj = m.user;
-        const uid     = userObj?._id?.toString() ?? "";
-        const stats   = statsMap.get(uid);
+        const uid   = m._id?.toString() ?? "";
+        const stats = statsMap.get(uid);
         return {
           userId:      uid,
-          name:        userObj?.name        ?? "Unknown",
-          email:       userObj?.email       ?? "",
-          designation: userObj?.designation ?? "",
-          isActive:    m.isActive,
+          name:        m.name        ?? "Unknown",
+          email:       m.email       ?? "",
+          designation: m.designation ?? "",
+          isActive:    !inactiveSet.has(uid),
           total:       stats?.total ?? 0,
           ...(stats ? Object.fromEntries(ALL_STATUSES.map((s) => [s, stats[s] ?? 0])) : ZERO),
         };
