@@ -7,6 +7,8 @@
  * instead of auto-creating leads (user decides via the portal).
  */
 
+import path from "path";
+import fs   from "fs";
 import pino from "pino";
 import qrcode from "qrcode";
 import makeWASocket, {
