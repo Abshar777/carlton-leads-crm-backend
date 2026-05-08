@@ -263,6 +263,9 @@ export async function connect(userId: string): Promise<void> {
   sock.ev.on("creds.update", saveCreds);
 
   sock.ev.on("connection.update", async (update) => {
+    // Guard: if this socket was replaced/discarded by disconnectWA, ignore all events
+    if (s.sock !== sock) return;
+
     const { connection, lastDisconnect, qr } = update;
 
     if (qr) {
@@ -313,14 +316,22 @@ export async function connect(userId: string): Promise<void> {
 
 export async function disconnectWA(userId: string): Promise<void> {
   const s = getSession(userId);
+
+  // Cancel any pending auto-reconnect
   if (s.reconnectTimer) { clearTimeout(s.reconnectTimer); s.reconnectTimer = null; }
-  if (s.sock) {
-    try { await s.sock.logout(); } catch { /* ignore */ }
-    s.sock    = null;
-  }
+
+  // Null the socket FIRST — the connection.update guard (s.sock !== sock) will
+  // then ignore the "close" event Baileys fires after logout, preventing the
+  // auto-reconnect timer from being rescheduled.
+  const sockToClose = s.sock;
+  s.sock    = null;
   s.status  = "disconnected";
   s.phone   = "";
   s.qrImage = "";
+
+  if (sockToClose) {
+    try { await sockToClose.logout(); } catch { /* ignore */ }
+  }
 
   // Delete saved credentials so the next connect() starts fresh and shows a QR
   const dir = sessionDir(userId);
