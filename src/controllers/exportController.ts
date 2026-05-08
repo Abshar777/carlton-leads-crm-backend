@@ -142,30 +142,41 @@ function pdfTable(
   startY:  number,
   rowH     = 20,
 ) {
-  const totalW = colW.reduce((a, b) => a + b, 0);
+  const totalW     = colW.reduce((a, b) => a + b, 0);
+  const pageBottom = doc.page.height - 50;
+  const pageTop    = 40;
 
-  // Header row
-  doc.rect(startX, startY, totalW, rowH).fill(BLUE);
-  doc.fillColor(WHITE).font("Helvetica-Bold").fontSize(7.5);
-  let x = startX;
-  headers.forEach((h, i) => {
-    doc.text(h, x + 4, startY + 6, { width: colW[i] - 6, align: i === 0 ? "left" : "center" });
-    x += colW[i];
-  });
+  // Draw the header row at the given y, returns y after header
+  function drawHeader(y: number): number {
+    doc.rect(startX, y, totalW, rowH).fill(BLUE);
+    doc.fillColor(WHITE).font("Helvetica-Bold").fontSize(7.5);
+    let x = startX;
+    headers.forEach((h, i) => {
+      doc.text(h, x + 4, y + 6, { width: colW[i] - 6, align: i === 0 ? "left" : "center" });
+      x += colW[i];
+    });
+    return y + rowH;
+  }
 
-  // Data rows
+  // Draw header on first page
+  let currentY = drawHeader(startY);
+
+  // Data rows — currentY tracks exact position on the current page
   doc.font("Helvetica").fontSize(7).fillColor(DARK);
   rows.forEach((row, ri) => {
-    const y = startY + rowH * (ri + 1);
-    if (y + rowH > doc.page.height - 50) { doc.addPage(); }
+    // If this row won't fit, add a new page and redraw the header
+    if (currentY + rowH > pageBottom) {
+      doc.addPage();
+      currentY = drawHeader(pageTop);
+    }
 
     const bg = ri % 2 === 0 ? WHITE : LIGHT;
-    doc.rect(startX, y, totalW, rowH).fill(bg);
+    doc.rect(startX, currentY, totalW, rowH).fill(bg);
 
     doc.fillColor(DARK);
     let cx = startX;
     row.forEach((cell, ci) => {
-      doc.text(String(cell ?? "-"), cx + 4, y + 6, {
+      doc.text(String(cell ?? "-"), cx + 4, currentY + 6, {
         width: colW[ci] - 6,
         align: ci === 0 ? "left" : "center",
       });
@@ -173,10 +184,11 @@ function pdfTable(
     });
 
     // Row border
-    doc.rect(startX, y, totalW, rowH).stroke("#e2e8f0");
+    doc.rect(startX, currentY, totalW, rowH).stroke("#e2e8f0");
+    currentY += rowH;
   });
 
-  return startY + rowH * (rows.length + 1);
+  return currentY;
 }
 
 export const exportPdf = async (
