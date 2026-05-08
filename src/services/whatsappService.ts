@@ -317,11 +317,18 @@ export async function disconnectWA(userId: string): Promise<void> {
   if (s.sock) {
     try { await s.sock.logout(); } catch { /* ignore */ }
     s.sock    = null;
-    s.status  = "disconnected";
-    s.phone   = "";
-    s.qrImage = "";
-    emitStatus(userId);
   }
+  s.status  = "disconnected";
+  s.phone   = "";
+  s.qrImage = "";
+
+  // Delete saved credentials so the next connect() starts fresh and shows a QR
+  const dir = sessionDir(userId);
+  try {
+    if (fs.existsSync(dir)) fs.rmSync(dir, { recursive: true, force: true });
+  } catch { /* ignore fs errors */ }
+
+  emitStatus(userId);
 }
 
 export async function sendMessage(
