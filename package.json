@@ -12,12 +12,15 @@
     "test:teams": "bun test tests/teams/ --timeout 15000",
     "test:verbose": "bun test tests/ --timeout 15000 --reporter=verbose",
     "backup": "bun scripts/run-backup.ts",
-    "recover": "bun scripts/recover.ts"
+    "recover": "bun scripts/recover.ts",
+    "mcp": "bun mcp-server/index.ts"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@types/pdfkit": "^0.17.5",
     "@types/web-push": "^3.6.4",
+    "@whiskeysockets/baileys": "^7.0.0-rc10",
     "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
@@ -28,6 +31,8 @@
     "morgan": "^1.10.0",
     "multer": "^2.1.1",
     "pdfkit": "^0.18.0",
+    "pino": "^10.3.1",
+    "qrcode": "^1.5.4",
     "socket.io": "^4.8.3",
     "web-push": "^3.6.7",
     "xlsx": "^0.18.5",
@@ -40,6 +45,7 @@
     "@types/jsonwebtoken": "^9.0.6",
     "@types/morgan": "^1.9.9",
     "@types/multer": "^2.1.0",
+    "@types/qrcode": "^1.5.6",
     "typescript": "^5.4.5"
   }
 }

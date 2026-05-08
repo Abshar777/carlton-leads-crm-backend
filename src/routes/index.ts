@@ -10,7 +10,8 @@ import sheetsRoutes from "./sheetsRoutes.js";
 import reportRoutes from "./reportRoutes.js";
 import pushRoutes from "./pushRoutes.js";
 import aiRoutes from "./aiRoutes.js";
-import backupRoutes from "./backupRoutes.js";
+import backupRoutes    from "./backupRoutes.js";
+import whatsappRoutes from "./whatsappRoutes.js";
 
 const router = Router();
 
@@ -25,7 +26,8 @@ router.use("/sheets",  sheetsRoutes);
 router.use("/reports", reportRoutes);
 router.use("/push",    pushRoutes);
 router.use("/ai",      aiRoutes);
-router.use("/backup",  backupRoutes);
+router.use("/backup",    backupRoutes);
+router.use("/whatsapp", whatsappRoutes);
 
 // Health check
 router.get("/health", (_req, res) => {

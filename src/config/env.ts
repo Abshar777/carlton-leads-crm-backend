@@ -18,6 +18,8 @@ const envSchema = z.object({
   GEMINI_API_KEY:      z.string().default(""),
   TELEGRAM_BOT_TOKEN:  z.string().default(""),
   TELEGRAM_CHAT_ID:    z.string().default(""),
+  OLLAMA_BASE_URL:     z.string().default("http://localhost:11434"),
+  OLLAMA_MODEL:        z.string().default("llama3.2"),
 });
 
 const parsed = envSchema.safeParse(process.env);

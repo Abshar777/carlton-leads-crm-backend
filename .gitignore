@@ -43,3 +43,7 @@ next-env.d.ts
 dist
 sheets
 backup-manifest.json
+
+# WhatsApp session (Baileys auth credentials)
+whatsapp-session/
+whatsapp-sessions/
