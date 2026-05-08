@@ -257,19 +257,18 @@ export class LeadService {
     if (filters.reporter)   query.reporter   = filters.reporter;
     if (filters.course)     query.course     = filters.course;
 
-    // ── Date range filter on createdAt ──────────────────────────────────────────
+    // ── Date range filter on createdAt (IST-aware) ──────────────────────────────
+    // Append +05:30 so JS parses the date as IST midnight, not UTC midnight.
+    // Without this, "2026-05-07" → 2026-05-07T00:00:00Z which is 05:30 AM IST —
+    // causing leads from the first 5.5 hrs of the next IST day to appear.
     if (filters.dateFrom || filters.dateTo) {
       const dateRange: Record<string, Date> = {};
       if (filters.dateFrom) {
-        const from = new Date(filters.dateFrom);
-        // Start of the given day (00:00:00 UTC)
-        from.setUTCHours(0, 0, 0, 0);
+        const from = new Date(filters.dateFrom + "T00:00:00.000+05:30");
         if (!isNaN(from.getTime())) dateRange.$gte = from;
       }
       if (filters.dateTo) {
-        const to = new Date(filters.dateTo);
-        // End of the given day (23:59:59.999 UTC)
-        to.setUTCHours(23, 59, 59, 999);
+        const to = new Date(filters.dateTo + "T23:59:59.999+05:30");
         if (!isNaN(to.getTime())) dateRange.$lte = to;
       }
       if (Object.keys(dateRange).length > 0) {

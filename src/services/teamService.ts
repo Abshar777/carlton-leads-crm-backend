@@ -180,13 +180,11 @@ export class TeamService {
     if (filters.dateFrom || filters.dateTo) {
       const dateRange: Record<string, Date> = {};
       if (filters.dateFrom) {
-        const from = new Date(filters.dateFrom);
-        from.setUTCHours(0, 0, 0, 0);
+        const from = new Date(filters.dateFrom + "T00:00:00.000+05:30");
         if (!isNaN(from.getTime())) dateRange.$gte = from;
       }
       if (filters.dateTo) {
-        const to = new Date(filters.dateTo);
-        to.setUTCHours(23, 59, 59, 999);
+        const to = new Date(filters.dateTo + "T23:59:59.999+05:30");
         if (!isNaN(to.getTime())) dateRange.$lte = to;
       }
       if (Object.keys(dateRange).length > 0) query.createdAt = dateRange;
@@ -391,12 +389,12 @@ export class TeamService {
     const dashNow = new Date();
     const dashMonthStart = new Date(Date.UTC(dashNow.getUTCFullYear(), dashNow.getUTCMonth(), 1));
 
-    // Optional date range filter applied to all other counts
+    // Optional date range filter applied to all other counts (IST-aware)
     const dateFilter: Record<string, unknown> = {};
     if (dateFrom || dateTo) {
       const range: Record<string, Date> = {};
-      if (dateFrom) { const d = new Date(dateFrom); d.setUTCHours(0, 0, 0, 0); if (!isNaN(d.getTime())) range.$gte = d; }
-      if (dateTo)   { const d = new Date(dateTo);   d.setUTCHours(23, 59, 59, 999); if (!isNaN(d.getTime())) range.$lte = d; }
+      if (dateFrom) { const d = new Date(dateFrom + "T00:00:00.000+05:30"); if (!isNaN(d.getTime())) range.$gte = d; }
+      if (dateTo)   { const d = new Date(dateTo   + "T23:59:59.999+05:30"); if (!isNaN(d.getTime())) range.$lte = d; }
       if (Object.keys(range).length) dateFilter.createdAt = range;
     }
     const base = { team: teamId, ...dateFilter };
@@ -618,15 +616,11 @@ export class TeamService {
     // ── Build post-union filter conditions ───────────────────────────────────
     const conditions: Record<string, unknown>[] = [];
 
-    // Date range
+    // Date range (IST-aware)
     if (dateFrom || dateTo) {
       const cr: Record<string, Date> = {};
-      if (dateFrom) cr.$gte = new Date(dateFrom);
-      if (dateTo) {
-        const end = new Date(dateTo);
-        end.setHours(23, 59, 59, 999);
-        cr.$lte = end;
-      }
+      if (dateFrom) cr.$gte = new Date(dateFrom + "T00:00:00.000+05:30");
+      if (dateTo)   cr.$lte = new Date(dateTo   + "T23:59:59.999+05:30");
       conditions.push({ createdAt: cr });
     }
 

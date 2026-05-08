@@ -20,8 +20,9 @@ export class ReportService {
   private buildDateFilter(dateFrom?: string, dateTo?: string): DateFilter {
     if (!dateFrom && !dateTo) return {};
     const f: { $gte?: Date; $lte?: Date } = {};
-    if (dateFrom) f.$gte = new Date(dateFrom + "T00:00:00.000Z");
-    if (dateTo)   f.$lte = new Date(dateTo   + "T23:59:59.999Z");
+    // +05:30 = IST — treats input dates as IST midnight, not UTC midnight
+    if (dateFrom) f.$gte = new Date(dateFrom + "T00:00:00.000+05:30");
+    if (dateTo)   f.$lte = new Date(dateTo   + "T23:59:59.999+05:30");
     return { createdAt: f };
   }
 
@@ -394,8 +395,9 @@ export class ReportService {
   private buildPaymentDateFilter(dateFrom?: string, dateTo?: string): Record<string, unknown> {
     if (!dateFrom && !dateTo) return {};
     const f: { $gte?: Date; $lte?: Date } = {};
-    if (dateFrom) f.$gte = new Date(dateFrom + "T00:00:00.000Z");
-    if (dateTo)   f.$lte = new Date(dateTo   + "T23:59:59.999Z");
+    // +05:30 = IST — treats input dates as IST midnight, not UTC midnight
+    if (dateFrom) f.$gte = new Date(dateFrom + "T00:00:00.000+05:30");
+    if (dateTo)   f.$lte = new Date(dateTo   + "T23:59:59.999+05:30");
     return { "payments.paidAt": f };
   }
 

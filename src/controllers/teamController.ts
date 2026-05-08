@@ -670,8 +670,8 @@ export async function getTeamMemberReport(
 
     // Date range filter on createdAt
     const dateFilter: Record<string, Date> = {};
-    if (dateFrom) dateFilter.$gte = new Date(dateFrom + "T00:00:00.000Z");
-    if (dateTo)   dateFilter.$lte = new Date(dateTo   + "T23:59:59.999Z");
+    if (dateFrom) dateFilter.$gte = new Date(dateFrom + "T00:00:00.000+05:30");
+    if (dateTo)   dateFilter.$lte = new Date(dateTo   + "T23:59:59.999+05:30");
 
     const matchFilter: Record<string, unknown> = {
       team: new mongoose.Types.ObjectId(teamId),
