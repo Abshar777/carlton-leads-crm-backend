@@ -1,6 +1,4 @@
 import mongoose from "mongoose";
-import path from "path";
-import fs from "fs";
 import type { Response, NextFunction } from "express";
 import type { AuthenticatedRequest } from "../types/index.js";
 import { sendSuccess, sendError } from "../utils/response.js";
@@ -14,8 +12,6 @@ import {
   sendMedia,
   getStatus,
 } from "../services/whatsappService.js";
-
-const MEDIA_DIR = path.resolve("uploads/whatsapp-media");
 
 // ── Status & connection ───────────────────────────────────────────────────────
 
@@ -423,23 +419,3 @@ export const sendMediaMessage = async (
   }
 };
 
-/**
- * GET /whatsapp/media/:filename
- * Serves uploaded/downloaded media files.
- */
-export const serveMediaFile = (
-  req: AuthenticatedRequest,
-  res: Response,
-  next: NextFunction,
-): void => {
-  try {
-    const { filename } = req.params;
-    // Basic path traversal guard
-    if (filename.includes("..") || filename.includes("/")) {
-      sendError(res, "Invalid filename", 400); return;
-    }
-    const filePath = path.join(MEDIA_DIR, filename);
-    if (!fs.existsSync(filePath)) { sendError(res, "File not found", 404); return; }
-    res.sendFile(filePath);
-  } catch (err) { next(err); }
-};

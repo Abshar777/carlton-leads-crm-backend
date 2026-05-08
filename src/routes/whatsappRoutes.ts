@@ -18,14 +18,10 @@ import {
   getWASettings,
   updateWASettings,
   sendMediaMessage,
-  serveMediaFile,
 } from "../controllers/whatsappController.js";
 
 const router  = Router();
 const upload  = multer({ storage: multer.memoryStorage(), limits: { fileSize: 64 * 1024 * 1024 } });
-
-// ── Media (public — filenames are UUIDs, no auth needed for <img>/<video>) ───
-router.get("/media/:filename", serveMediaFile);
 
 router.use(authenticate);
 

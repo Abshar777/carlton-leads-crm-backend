@@ -12,7 +12,7 @@ export interface IWhatsAppMessage {
   agentId?:         mongoose.Types.ObjectId | null;
   connectedUserId?: mongoose.Types.ObjectId | null;
   read:             boolean;
-  mediaUrl?:        string;
+  mediaData?:       string;   // base64-encoded bytes (no disk storage)
   mediaType?:       WAMediaType;
   mimeType?:        string;
   fileName?:        string;
@@ -30,7 +30,7 @@ const whatsAppMessageSchema = new Schema<IWhatsAppMessage>(
     agentId:          { type: Schema.Types.ObjectId, ref: "User",    default: null },
     connectedUserId:  { type: Schema.Types.ObjectId, ref: "User",    default: null, index: true },
     read:             { type: Boolean, default: false },
-    mediaUrl:         { type: String,  default: null },
+    mediaData:        { type: String,  default: null },   // base64
     mediaType:        { type: String,  enum: ["image","video","document","audio","sticker"], default: null },
     mimeType:         { type: String,  default: null },
     fileName:         { type: String,  default: null },

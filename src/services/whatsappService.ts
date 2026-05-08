@@ -7,8 +7,6 @@
  * instead of auto-creating leads (user decides via the portal).
  */
 
-import path from "path";
-import fs from "fs";
 import pino from "pino";
 import qrcode from "qrcode";
 import makeWASocket, {
@@ -21,8 +19,7 @@ import makeWASocket, {
 } from "@whiskeysockets/baileys";
 import { Boom } from "@hapi/boom";
 
-const MEDIA_DIR = path.resolve("uploads/whatsapp-media");
-if (!fs.existsSync(MEDIA_DIR)) fs.mkdirSync(MEDIA_DIR, { recursive: true });
+const MAX_MEDIA_BYTES = 8 * 1024 * 1024; // 8 MB — skip larger files to stay within MongoDB 16 MB doc limit
 
 import { Lead }               from "../models/Lead.js";
 import { WhatsAppMessage }    from "../models/WhatsAppMessage.js";
@@ -108,7 +105,7 @@ function emitStatus(userId: string) {
 
 // ── Media helpers ─────────────────────────────────────────────────────────────
 
-type MediaInfo = { mediaUrl: string; mediaType: string; mimeType: string; fileName: string } | null;
+type MediaInfo = { mediaData: string; mediaType: string; mimeType: string; fileName: string } | null;
 
 async function downloadInboundMedia(
   sock: WASocket,
@@ -119,22 +116,22 @@ async function downloadInboundMedia(
 
   let mediaType: string;
   let mimeType:  string;
-  let fileExt:   string;
-  let fileName:  string = "";
+  let fileName = "";
 
-  if      (m.imageMessage)    { mediaType = "image";    mimeType = m.imageMessage.mimetype    || "image/jpeg";      fileExt = "jpg"; }
-  else if (m.videoMessage)    { mediaType = "video";    mimeType = m.videoMessage.mimetype    || "video/mp4";       fileExt = "mp4"; }
-  else if (m.documentMessage) { mediaType = "document"; mimeType = m.documentMessage.mimetype || "application/pdf"; fileExt = mimeType.split("/")[1] || "bin"; fileName = m.documentMessage.fileName || ""; }
-  else if (m.audioMessage)    { mediaType = "audio";    mimeType = m.audioMessage.mimetype    || "audio/ogg";       fileExt = "ogg"; }
-  else if (m.stickerMessage)  { mediaType = "sticker";  mimeType = m.stickerMessage.mimetype  || "image/webp";      fileExt = "webp"; }
+  if      (m.imageMessage)    { mediaType = "image";    mimeType = m.imageMessage.mimetype    || "image/jpeg"; }
+  else if (m.videoMessage)    { mediaType = "video";    mimeType = m.videoMessage.mimetype    || "video/mp4"; }
+  else if (m.documentMessage) { mediaType = "document"; mimeType = m.documentMessage.mimetype || "application/octet-stream"; fileName = m.documentMessage.fileName || ""; }
+  else if (m.audioMessage)    { mediaType = "audio";    mimeType = m.audioMessage.mimetype    || "audio/ogg"; }
+  else if (m.stickerMessage)  { mediaType = "sticker";  mimeType = m.stickerMessage.mimetype  || "image/webp"; }
   else return null;
 
   try {
-    const buffer = await downloadMediaMessage(msg, "buffer", {}, { logger, reuploadRequest: sock.updateMediaMessage });
-    const safeId = (msg.key.id ?? Date.now().toString()).replace(/[^a-zA-Z0-9_-]/g, "");
-    const fname  = `${safeId}.${fileExt}`;
-    fs.writeFileSync(path.join(MEDIA_DIR, fname), buffer as Buffer);
-    return { mediaUrl: `/api/v1/whatsapp/media/${fname}`, mediaType, mimeType, fileName };
+    const buffer = await downloadMediaMessage(msg, "buffer", {}, { logger, reuploadRequest: sock.updateMediaMessage }) as Buffer;
+    if (buffer.length > MAX_MEDIA_BYTES) {
+      console.warn(`[WA] Media too large (${(buffer.length / 1024 / 1024).toFixed(1)} MB), skipping storage`);
+      return null;
+    }
+    return { mediaData: buffer.toString("base64"), mediaType, mimeType, fileName };
   } catch (err) {
     console.warn("[WA] Media download failed:", err);
     return null;
@@ -170,7 +167,6 @@ async function handleInbound(
   // Download media if present
   const media = await downloadInboundMedia(sock, msg);
 
-  // Save message regardless of lead link
   const saved = await WhatsAppMessage.create({
     lead:            lead?._id ?? null,
     phone,
@@ -180,7 +176,12 @@ async function handleInbound(
     senderName:      senderName || phone,
     connectedUserId: userId,
     read:            false,
-    ...(media ?? {}),
+    ...(media ? {
+      mediaData: media.mediaData,
+      mediaType: media.mediaType,
+      mimeType:  media.mimeType,
+      fileName:  media.fileName,
+    } : {}),
   });
 
   if (!lead) {
@@ -370,34 +371,29 @@ export async function sendMedia(
   const s = getSession(userId);
   if (!s.sock || s.status !== "connected") throw new Error("WhatsApp not connected");
 
-  const jid   = toJID(phone);
+  const jid    = toJID(phone);
   const nPhone = normalisePhone(phone);
   const last10 = nPhone.slice(-10);
 
   let mediaType: "image" | "video" | "document" | "audio";
-  let baileysMsg: Record<string, unknown>;
 
+  // Send to WhatsApp via Baileys with correct content shapes
   if (mimeType.startsWith("image/")) {
-    mediaType  = "image";
-    baileysMsg = { image: buffer, mimetype: mimeType, caption };
+    mediaType = "image";
+    await s.sock.sendMessage(jid, { image: buffer, caption });
   } else if (mimeType.startsWith("video/")) {
-    mediaType  = "video";
-    baileysMsg = { video: buffer, mimetype: mimeType, caption };
+    mediaType = "video";
+    await s.sock.sendMessage(jid, { video: buffer, caption });
   } else if (mimeType.startsWith("audio/")) {
-    mediaType  = "audio";
-    baileysMsg = { audio: buffer, mimetype: mimeType, ptt: false };
+    mediaType = "audio";
+    await s.sock.sendMessage(jid, { audio: buffer, mimetype: mimeType, ptt: false });
   } else {
-    mediaType  = "document";
-    baileysMsg = { document: buffer, mimetype: mimeType, fileName, caption };
+    mediaType = "document";
+    await s.sock.sendMessage(jid, { document: buffer, mimetype: mimeType, fileName, caption });
   }
 
-  await s.sock.sendMessage(jid, baileysMsg as Parameters<typeof s.sock.sendMessage>[1]);
-
-  // Save file to disk
-  const ext    = fileName.split(".").pop() || mimeType.split("/")[1] || "bin";
-  const fname  = `out_${Date.now()}.${ext}`;
-  fs.writeFileSync(path.join(MEDIA_DIR, fname), buffer);
-  const mediaUrl = `/api/v1/whatsapp/media/${fname}`;
+  // Store base64 in MongoDB (skip if too large)
+  const mediaData = buffer.length <= MAX_MEDIA_BYTES ? buffer.toString("base64") : undefined;
 
   const lead  = await Lead.findOne({ phone: { $regex: last10 } }).lean();
   const saved = await WhatsAppMessage.create({
@@ -409,10 +405,7 @@ export async function sendMedia(
     agentId:         agentId ?? null,
     connectedUserId: userId,
     read:            true,
-    mediaUrl,
-    mediaType,
-    mimeType,
-    fileName,
+    ...(mediaData ? { mediaData, mediaType, mimeType, fileName } : { mediaType, mimeType, fileName }),
   });
 
   emitToUser(userId, "whatsapp:message", {
@@ -423,7 +416,6 @@ export async function sendMedia(
     direction: "outbound",
     messageId: saved._id.toString(),
     timestamp: saved.createdAt,
-    mediaUrl,
     mediaType,
     mimeType,
     fileName,
