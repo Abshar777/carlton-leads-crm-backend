@@ -299,9 +299,10 @@ export async function bulkUpdateTeamLeadsStatus(
           "assigned",
           "followup",
           "closed",
-          "rejected",
+          "invalid",
           "cnc",
           "booking",
+          "notinterested",
           "interested",
           "rnr",
           "callback",
@@ -647,7 +648,7 @@ export async function updateTeamSettings(
 
 const ALL_STATUSES = [
   "new","assigned","followup","interested","cnc","booking",
-  "partialbooking","closed","rejected","rnr","callback","whatsapp","student",
+  "notinterested","closed","invalid","rnr","callback","whatsapp","student",
 ] as const;
 
 /**

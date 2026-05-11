@@ -218,22 +218,22 @@ export class TeamService {
     const stats = await Promise.all(
       allUsers.map(async (u) => {
         const id = u._id.toString();
-        const [total, assigned, followup, closed, rejected, cnc, booking, partialbooking, interested, rnr, callback, whatsapp, student] = await Promise.all([
+        const [total, assigned, followup, closed, invalid, cnc, booking, notinterested, interested, rnr, callback, whatsapp, student] = await Promise.all([
           Lead.countDocuments({ team: teamId, assignedTo: id }),
           Lead.countDocuments({ team: teamId, assignedTo: id, status: "assigned" }),
           Lead.countDocuments({ team: teamId, assignedTo: id, status: "followup" }),
           Lead.countDocuments({ team: teamId, assignedTo: id, status: "closed" }),
-          Lead.countDocuments({ team: teamId, assignedTo: id, status: "rejected" }),
+          Lead.countDocuments({ team: teamId, assignedTo: id, status: "invalid" }),
           Lead.countDocuments({ team: teamId, assignedTo: id, status: "cnc" }),
           Lead.countDocuments({ team: teamId, assignedTo: id, status: "booking" }),
-          Lead.countDocuments({ team: teamId, assignedTo: id, status: "partialbooking" }),
+          Lead.countDocuments({ team: teamId, assignedTo: id, status: "notinterested" }),
           Lead.countDocuments({ team: teamId, assignedTo: id, status: "interested" }),
           Lead.countDocuments({ team: teamId, assignedTo: id, status: "rnr" }),
           Lead.countDocuments({ team: teamId, assignedTo: id, status: "callback" }),
           Lead.countDocuments({ team: teamId, assignedTo: id, status: "whatsapp" }),
           Lead.countDocuments({ team: teamId, assignedTo: id, status: "student" }),
         ]);
-        return { user: u, total, assigned, followup, closed, rejected, cnc, booking, partialbooking, interested, rnr, callback, whatsapp, student };
+        return { user: u, total, assigned, followup, closed, invalid, cnc, booking, notinterested, interested, rnr, callback, whatsapp, student };
       })
     );
 
@@ -399,18 +399,18 @@ export class TeamService {
     }
     const base = { team: teamId, ...dateFilter };
 
-    const [total, newCount, assigned, followup, closed, rejected, unassigned, cnc, booking, partialbooking, interested, rnr, callback, whatsapp, student, thisMonth] =
+    const [total, newCount, assigned, followup, closed, invalid, unassigned, cnc, booking, notinterested, interested, rnr, callback, whatsapp, student, thisMonth] =
       await Promise.all([
         Lead.countDocuments(base),
         Lead.countDocuments({ ...base, status: "new" }),
         Lead.countDocuments({ ...base, status: "assigned" }),
         Lead.countDocuments({ ...base, status: "followup" }),
         Lead.countDocuments({ ...base, status: "closed" }),
-        Lead.countDocuments({ ...base, status: "rejected" }),
+        Lead.countDocuments({ ...base, status: "invalid" }),
         Lead.countDocuments({ ...base, assignedTo: null }),
         Lead.countDocuments({ ...base, status: "cnc" }),
         Lead.countDocuments({ ...base, status: "booking" }),
-        Lead.countDocuments({ ...base, status: "partialbooking" }),
+        Lead.countDocuments({ ...base, status: "notinterested" }),
         Lead.countDocuments({ ...base, status: "interested" }),
         Lead.countDocuments({ ...base, status: "rnr" }),
         Lead.countDocuments({ ...base, status: "callback" }),
@@ -435,10 +435,10 @@ export class TeamService {
               assigned:       { $sum: { $cond: [{ $eq: ["$status", "assigned"] },       1, 0] } },
               followup:       { $sum: { $cond: [{ $eq: ["$status", "followup"] },       1, 0] } },
               closed:         { $sum: { $cond: [{ $eq: ["$status", "closed"] },         1, 0] } },
-              rejected:       { $sum: { $cond: [{ $eq: ["$status", "rejected"] },       1, 0] } },
+              invalid:        { $sum: { $cond: [{ $eq: ["$status", "invalid"] },        1, 0] } },
               cnc:            { $sum: { $cond: [{ $eq: ["$status", "cnc"] },            1, 0] } },
               booking:        { $sum: { $cond: [{ $eq: ["$status", "booking"] },        1, 0] } },
-              partialbooking: { $sum: { $cond: [{ $eq: ["$status", "partialbooking"] }, 1, 0] } },
+              notinterested:  { $sum: { $cond: [{ $eq: ["$status", "notinterested"] },  1, 0] } },
               interested:     { $sum: { $cond: [{ $eq: ["$status", "interested"] },     1, 0] } },
               rnr:            { $sum: { $cond: [{ $eq: ["$status", "rnr"] },            1, 0] } },
               callback:       { $sum: { $cond: [{ $eq: ["$status", "callback"] },       1, 0] } },
@@ -451,8 +451,8 @@ export class TeamService {
         ]);
 
         const d = agg ?? {
-          total: 0, assigned: 0, followup: 0, closed: 0, rejected: 0,
-          cnc: 0, booking: 0, partialbooking: 0, interested: 0,
+          total: 0, assigned: 0, followup: 0, closed: 0, invalid: 0,
+          cnc: 0, booking: 0, notinterested: 0, interested: 0,
           rnr: 0, callback: 0, whatsapp: 0, student: 0, totalPayments: 0,
         };
         const closureRate = d.total > 0 ? Math.round((d.closed / d.total) * 100) : 0;
@@ -466,10 +466,10 @@ export class TeamService {
           assigned:       d.assigned,
           followup:       d.followup,
           closed:         d.closed,
-          rejected:       d.rejected,
+          invalid:        d.invalid,
           cnc:            d.cnc,
           booking:        d.booking,
-          partialbooking: d.partialbooking,
+          notinterested:  d.notinterested,
           interested:     d.interested,
           rnr:            d.rnr,
           callback:       d.callback,
@@ -485,7 +485,7 @@ export class TeamService {
     memberRankings.sort((a, b) => b.totalPayments - a.totalPayments);
 
     return {
-      statusDistribution: { total, thisMonth, new: newCount, assigned, followup, closed, rejected, unassigned, cnc, booking, partialbooking, interested, rnr, callback, whatsapp, student },
+      statusDistribution: { total, thisMonth, new: newCount, assigned, followup, closed, invalid, unassigned, cnc, booking, notinterested, interested, rnr, callback, whatsapp, student },
       memberRankings,
     };
   }
@@ -839,10 +839,10 @@ export class TeamService {
           assigned:       { $sum: { $cond: [{ $eq: ["$status", "assigned"] },       1, 0] } },
           followup:       { $sum: { $cond: [{ $eq: ["$status", "followup"] },       1, 0] } },
           closed:         { $sum: { $cond: [{ $eq: ["$status", "closed"] },         1, 0] } },
-          rejected:       { $sum: { $cond: [{ $eq: ["$status", "rejected"] },       1, 0] } },
+          invalid:        { $sum: { $cond: [{ $eq: ["$status", "invalid"] },        1, 0] } },
           cnc:            { $sum: { $cond: [{ $eq: ["$status", "cnc"] },            1, 0] } },
           booking:        { $sum: { $cond: [{ $eq: ["$status", "booking"] },        1, 0] } },
-          partialbooking: { $sum: { $cond: [{ $eq: ["$status", "partialbooking"] }, 1, 0] } },
+          notinterested:  { $sum: { $cond: [{ $eq: ["$status", "notinterested"] },  1, 0] } },
           interested:     { $sum: { $cond: [{ $eq: ["$status", "interested"] },     1, 0] } },
           rnr:            { $sum: { $cond: [{ $eq: ["$status", "rnr"] },            1, 0] } },
           callback:       { $sum: { $cond: [{ $eq: ["$status", "callback"] },       1, 0] } },
@@ -854,8 +854,8 @@ export class TeamService {
     ]);
 
     const stats = agg ?? {
-      total: 0, assigned: 0, followup: 0, closed: 0, rejected: 0,
-      cnc: 0, booking: 0, partialbooking: 0, interested: 0,
+      total: 0, assigned: 0, followup: 0, closed: 0, invalid: 0,
+      cnc: 0, booking: 0, notinterested: 0, interested: 0,
       rnr: 0, callback: 0, whatsapp: 0, student: 0, totalPayments: 0,
     };
 

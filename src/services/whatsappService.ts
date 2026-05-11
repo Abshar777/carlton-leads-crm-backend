@@ -23,8 +23,10 @@ import { Boom } from "@hapi/boom";
 
 const MAX_MEDIA_BYTES = 8 * 1024 * 1024; // 8 MB — skip larger files to stay within MongoDB 16 MB doc limit
 
+import type { HydratedDocument } from "mongoose";
 import { Lead }               from "../models/Lead.js";
-import { WhatsAppMessage }    from "../models/WhatsAppMessage.js";
+import { User }               from "../models/User.js";
+import { WhatsAppMessage, type IWhatsAppMessage } from "../models/WhatsAppMessage.js";
 import { WhatsAppSettings }   from "../models/WhatsAppSettings.js";
 import { emitToUser }         from "../socket.js";
 
@@ -155,36 +157,38 @@ async function handleInbound(
   const phone = normalisePhone(jid.split("@")[0]);
   if (!phone || !body.trim()) return;
 
-  // Deduplicate by messageId
-  if (messageId) {
-    const exists = await WhatsAppMessage.exists({ messageId });
-    if (exists) return;
-  }
-
   const last10 = phone.slice(-10);
-  const lead   = await Lead.findOne({ phone: { $regex: last10 } }).lean();
+  const lead   = await Lead.findOne({ phone: { $regex: `${last10}$` } }).lean();
 
   const settings = await WhatsAppSettings.findOne({ userId }).lean();
 
   // Download media if present
   const media = await downloadInboundMedia(sock, msg);
 
-  const saved = await WhatsAppMessage.create({
-    lead:            lead?._id ?? null,
-    phone,
-    direction:       "inbound",
-    body:            body.trim(),
-    messageId,
-    senderName:      senderName || phone,
-    connectedUserId: userId,
-    read:            false,
-    ...(media ? {
-      mediaData: media.mediaData,
-      mediaType: media.mediaType,
-      mimeType:  media.mimeType,
-      fileName:  media.fileName,
-    } : {}),
-  });
+  // Atomic deduplication — the partial unique index on messageId catches concurrent
+  // reconnect duplicates; a non-atomic exists()-then-create would have a race window.
+  let saved!: HydratedDocument<IWhatsAppMessage>;
+  try {
+    saved = await WhatsAppMessage.create({
+      lead:            lead?._id ?? null,
+      phone,
+      direction:       "inbound",
+      body:            body.trim(),
+      messageId,
+      senderName:      senderName || phone,
+      connectedUserId: userId,
+      read:            false,
+      ...(media ? {
+        mediaData: media.mediaData,
+        mediaType: media.mediaType,
+        mimeType:  media.mimeType,
+        fileName:  media.fileName,
+      } : {}),
+    });
+  } catch (err: unknown) {
+    if ((err as { code?: number }).code === 11000) return; // duplicate messageId — already processed
+    throw err;
+  }
 
   if (!lead) {
     if (settings?.autoCreateLeads) {
@@ -355,7 +359,7 @@ export async function sendMessage(
   await s.sock.sendMessage(jid, { text: body });
 
   const last10 = normalisePhone(phone).slice(-10);
-  const lead   = await Lead.findOne({ phone: { $regex: last10 } }).lean();
+  const lead   = await Lead.findOne({ phone: { $regex: `${last10}$` } }).lean();
 
   const saved = await WhatsAppMessage.create({
     lead:            lead?._id ?? null,
@@ -368,6 +372,10 @@ export async function sendMessage(
     read:            true,
   });
 
+  const agentDoc = agentId
+    ? await User.findById(agentId, "name").lean<{ name: string }>()
+    : null;
+
   emitToUser(userId, "whatsapp:message", {
     leadId:    lead?._id?.toString() ?? null,
     leadName:  lead?.name ?? null,
@@ -376,6 +384,7 @@ export async function sendMessage(
     direction: "outbound",
     messageId: saved._id.toString(),
     timestamp: saved.createdAt,
+    agentId:   agentId ? { _id: agentId, name: agentDoc?.name ?? "" } : null,
   });
 }
 
@@ -415,7 +424,7 @@ export async function sendMedia(
   // Store base64 in MongoDB (skip if too large)
   const mediaData = buffer.length <= MAX_MEDIA_BYTES ? buffer.toString("base64") : undefined;
 
-  const lead  = await Lead.findOne({ phone: { $regex: last10 } }).lean();
+  const lead  = await Lead.findOne({ phone: { $regex: `${last10}$` } }).lean();
   const saved = await WhatsAppMessage.create({
     lead:            lead?._id ?? null,
     phone:           nPhone,
@@ -428,6 +437,10 @@ export async function sendMedia(
     ...(mediaData ? { mediaData, mediaType, mimeType, fileName } : { mediaType, mimeType, fileName }),
   });
 
+  const agentDoc = agentId
+    ? await User.findById(agentId, "name").lean<{ name: string }>()
+    : null;
+
   emitToUser(userId, "whatsapp:message", {
     leadId:    lead?._id?.toString() ?? null,
     leadName:  lead?.name ?? null,
@@ -439,6 +452,7 @@ export async function sendMedia(
     mediaType,
     mimeType,
     fileName,
+    agentId:   agentId ? { _id: agentId, name: agentDoc?.name ?? "" } : null,
   });
 }
 

@@ -183,7 +183,7 @@ const leadSchema = new Schema<ILead>(
     },
     status: {
       type: String,
-      enum: ["new", "assigned", "followup", "closed", "rejected", "cnc", "booking", "partialbooking", "interested", "rnr", "callback", "whatsapp", "student"],
+      enum: ["new", "assigned", "followup", "closed", "invalid", "cnc", "booking", "notinterested", "interested", "rnr", "callback", "whatsapp", "student"],
       default: "new",
     },
     assignedTo: {

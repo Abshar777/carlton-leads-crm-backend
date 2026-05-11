@@ -5,6 +5,7 @@ import { sendSuccess, sendError } from "../utils/response.js";
 import { WhatsAppMessage }  from "../models/WhatsAppMessage.js";
 import { WhatsAppSettings } from "../models/WhatsAppSettings.js";
 import { Lead }             from "../models/Lead.js";
+import { User }             from "../models/User.js";
 import {
   connect,
   disconnectWA,
@@ -92,13 +93,7 @@ export const getWAChats = async (
 
     const chats = await WhatsAppMessage.aggregate([
       {
-        $match: {
-          $or: [
-            { connectedUserId: userId },
-            { connectedUserId: null },
-            { connectedUserId: { $exists: false } },
-          ],
-        },
+        $match: { connectedUserId: userId },
       },
       { $sort:  { createdAt: -1 } },
       {
@@ -160,12 +155,8 @@ export const getPortalMessages = async (
     const before  = req.query.before ? new Date(req.query.before as string) : undefined;
 
     const filter: Record<string, unknown> = {
-      $or: [
-        { connectedUserId: userId },
-        { connectedUserId: null },
-        { connectedUserId: { $exists: false } },
-      ],
-      phone: { $regex: last10 },
+      connectedUserId: userId,
+      phone: { $regex: `${last10}$` },
     };
     if (before) filter.createdAt = { $lt: before };
 
@@ -195,8 +186,8 @@ export const markChatRead = async (
 
     await WhatsAppMessage.updateMany(
       {
-        $or: [{ connectedUserId: userId }, { connectedUserId: null }, { connectedUserId: { $exists: false } }],
-        phone: { $regex: last10 }, direction: "inbound", read: false,
+        connectedUserId: userId,
+        phone: { $regex: `${last10}$` }, direction: "inbound", read: false,
       },
       { $set: { read: true } },
     );
@@ -229,10 +220,23 @@ export const assignLeadToChat = async (
     const lead = await Lead.findById(leadId).lean();
     if (!lead) { sendError(res, "Lead not found", 404); return; }
 
+    // Ownership check — only the assigned owner (or a Super Admin) may link this lead
+    const assignedTo = lead.assignedTo as mongoose.Types.ObjectId | null | undefined;
+    if (assignedTo && assignedTo.toString() !== req.user!.userId) {
+      const actor = await User
+        .findById(req.user!.userId)
+        .populate<{ role: { isSystemRole: boolean; roleName: string } }>("role")
+        .lean();
+      if (!actor?.role?.isSystemRole) {
+        sendError(res, "You do not have access to this lead", 403);
+        return;
+      }
+    }
+
     await WhatsAppMessage.updateMany(
       {
-        $or: [{ connectedUserId: userId }, { connectedUserId: null }, { connectedUserId: { $exists: false } }],
-        phone: { $regex: last10 },
+        connectedUserId: userId,
+        phone: { $regex: `${last10}$` },
       },
       { $set: { lead: new mongoose.Types.ObjectId(leadId) } },
     );
@@ -259,8 +263,8 @@ export const createLeadFromChat = async (
     const { name }   = req.body as { name?: string };
 
     const legacyFilter = {
-      $or: [{ connectedUserId: userId }, { connectedUserId: null }, { connectedUserId: { $exists: false } }],
-      phone: { $regex: last10 },
+      connectedUserId: userId,
+      phone: { $regex: `${last10}$` },
     };
 
     let displayName = name?.trim();
@@ -337,8 +341,8 @@ export const getWhatsAppMessages = async (
 
     const msgs = await WhatsAppMessage
       .find({
-        $or: [{ connectedUserId: userId }, { connectedUserId: null }, { connectedUserId: { $exists: false } }],
-        phone: { $regex: last10 },
+        connectedUserId: userId,
+        phone: { $regex: `${last10}$` },
       })
       .populate("agentId", "name")
       .sort({ createdAt: 1 })
@@ -376,7 +380,7 @@ export const markWhatsAppRead = async (
     const phone  = req.params.phone.replace(/\D/g, "");
     const last10 = phone.slice(-10);
     await WhatsAppMessage.updateMany(
-      { connectedUserId: userId, phone: { $regex: last10 }, direction: "inbound", read: false },
+      { connectedUserId: userId, phone: { $regex: `${last10}$` }, direction: "inbound", read: false },
       { $set: { read: true } },
     );
     sendSuccess(res, "Marked as read");
@@ -397,6 +401,12 @@ export const sendMediaMessage = async (
   try {
     const file = (req as AuthenticatedRequest & { file?: Express.Multer.File }).file;
     if (!file) { sendError(res, "No file uploaded", 400); return; }
+
+    const MAX_UPLOAD_BYTES = 8 * 1024 * 1024; // 8 MB — matches MongoDB storage limit in service
+    if (file.size > MAX_UPLOAD_BYTES) {
+      sendError(res, "File is too large. Maximum allowed size is 8 MB.", 413);
+      return;
+    }
 
     const phone   = req.params.phone.replace(/\D/g, "");
     const caption = (req.body as { caption?: string }).caption?.trim() ?? "";

@@ -4,7 +4,7 @@ import { Team } from "../models/Team.js";
 import { User } from "../models/User.js";
 
 const ALL_STATUSES = [
-  "new", "assigned", "followup", "interested", "cnc", "booking", "partialbooking", "closed", "rejected",
+  "new", "assigned", "followup", "interested", "cnc", "booking", "notinterested", "closed", "invalid",
   "rnr", "callback", "whatsapp", "student",
 ] as const;
 
@@ -183,7 +183,7 @@ export class ReportService {
           designation: "$user.designation",
           total:       1,
           new: 1, assigned: 1, followup: 1, interested: 1,
-          cnc: 1, booking: 1, closed: 1, rejected: 1,
+          cnc: 1, booking: 1, closed: 1, invalid: 1,
           conversionRate: {
             $cond: [
               { $gt: ["$total", 0] },
@@ -238,7 +238,7 @@ export class ReportService {
           total:         1,
           totalPayments: 1,
           new: 1, assigned: 1, followup: 1, interested: 1,
-          cnc: 1, booking: 1, partialbooking: 1, closed: 1, rejected: 1,
+          cnc: 1, booking: 1, notinterested: 1, closed: 1, invalid: 1,
           conversionRate: {
             $cond: [
               { $gt: ["$total", 0] },
@@ -311,7 +311,7 @@ export class ReportService {
           teamName: { $ifNull: ["$teamInfo.name", "Unassigned"] },
           count:    1,
           new: 1, assigned: 1, followup: 1, interested: 1,
-          cnc: 1, booking: 1, closed: 1, rejected: 1,
+          cnc: 1, booking: 1, closed: 1, invalid: 1,
         } as Record<string, unknown>,
       },
     ]);
@@ -358,7 +358,7 @@ export class ReportService {
       // also accumulate status breakdown per team
       const statusKey = `${tname}__status`;
       if (!bucket[statusKey]) {
-        bucket[statusKey] = { new: 0, assigned: 0, followup: 0, interested: 0, cnc: 0, booking: 0, closed: 0, rejected: 0 };
+        bucket[statusKey] = { new: 0, assigned: 0, followup: 0, interested: 0, cnc: 0, booking: 0, closed: 0, invalid: 0 };
       }
       ALL_STATUSES.forEach((s) => {
         bucket[statusKey][s] = (bucket[statusKey][s] ?? 0) + ((row[s] as number) ?? 0);
@@ -856,16 +856,14 @@ export class ReportService {
       const total   = item.total as number;
       const closed  = (item.closed as number) ?? 0;
       const booking = (item.booking as number) ?? 0;
-      const partial = (item.partialbooking as number) ?? 0;
       return {
         source:         (item._id as string) || "other",
         total,
         closed,
         booking,
-        partialbooking: partial,
         revenue:        (item.revenue as number) ?? 0,
         conversionRate: total > 0 ? +((closed / total) * 100).toFixed(1) : 0,
-        bookingRate:    total > 0 ? (((booking + partial) / total) * 100).toFixed(1) : 0,
+        bookingRate:    total > 0 ? ((booking / total) * 100).toFixed(1) : 0,
       };
     });
   }
@@ -895,16 +893,14 @@ export class ReportService {
       const total   = item.total as number;
       const closed  = (item.closed as number) ?? 0;
       const booking = (item.booking as number) ?? 0;
-      const partial = (item.partialbooking as number) ?? 0;
       return {
         campaignId:     (item._id as string) || "(no campaign)",
         total,
         closed,
         booking,
-        partialbooking: partial,
         revenue:        (item.revenue as number) ?? 0,
         conversionRate: total > 0 ? +((closed / total) * 100).toFixed(1) : 0,
-        bookingRate:    total > 0 ? +(((booking + partial) / total) * 100).toFixed(1) : 0,
+        bookingRate:    total > 0 ? +((booking / total) * 100).toFixed(1) : 0,
       };
     });
   }

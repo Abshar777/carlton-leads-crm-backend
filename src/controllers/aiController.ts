@@ -257,7 +257,7 @@ async function buildReportPrompt(): Promise<string> {
   const total30 = Object.values(last30).reduce((a, b) => a + b, 0);
 
   const topUsers = await Lead.aggregate([
-    { $match: { assignedTo: { $ne: null }, status: { $in: ["closed", "booking", "partialbooking"] } } },
+    { $match: { assignedTo: { $ne: null }, status: { $in: ["closed", "booking"] } } },
     { $group: { _id: "$assignedTo", count: { $sum: 1 } } },
     { $sort: { count: -1 } }, { $limit: 5 },
     { $lookup: { from: "users", localField: "_id", foreignField: "_id", as: "user" } },
@@ -266,7 +266,7 @@ async function buildReportPrompt(): Promise<string> {
   ]);
 
   const topTeams = await Lead.aggregate([
-    { $match: { team: { $ne: null }, status: { $in: ["closed", "booking", "partialbooking"] } } },
+    { $match: { team: { $ne: null }, status: { $in: ["closed", "booking"] } } },
     { $group: { _id: "$team", count: { $sum: 1 } } },
     { $sort: { count: -1 } }, { $limit: 5 },
     { $lookup: { from: "teams", localField: "_id", foreignField: "_id", as: "team" } },

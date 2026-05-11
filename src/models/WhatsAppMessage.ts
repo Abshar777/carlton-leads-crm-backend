@@ -40,5 +40,11 @@ const whatsAppMessageSchema = new Schema<IWhatsAppMessage>(
 
 whatsAppMessageSchema.index({ connectedUserId: 1, phone: 1, createdAt: -1 });
 whatsAppMessageSchema.index({ phone: 1, createdAt: -1 });
+// Deduplication guard — unique only on real messageIds (inbound have one; outbound are "").
+// Uses $gt instead of $ne because MongoDB 7.0+ does not support $ne in partial filter expressions.
+whatsAppMessageSchema.index(
+  { messageId: 1 },
+  { unique: true, partialFilterExpression: { messageId: { $gt: "" } } },
+);
 
 export const WhatsAppMessage = mongoose.model<IWhatsAppMessage>("WhatsAppMessage", whatsAppMessageSchema);
