@@ -194,10 +194,11 @@ async function handleInbound(
     if (settings?.autoCreateLeads) {
       // Auto-create lead mode
       const newLead = await Lead.create({
-        name:   senderName || phone,
+        name:     senderName || phone,
         phone,
-        source: "WhatsApp",
-        status: "new",
+        source:   "WhatsApp",
+        status:   "new",
+        reporter: userId,
       });
       await WhatsAppMessage.updateOne({ _id: saved._id }, { $set: { lead: newLead._id } });
 

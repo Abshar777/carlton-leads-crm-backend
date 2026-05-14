@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { z }    from "zod";
 import type { Response, NextFunction } from "express";
 import type { AuthenticatedRequest } from "../types/index.js";
 import { sendSuccess, sendError } from "../utils/response.js";
@@ -260,24 +261,39 @@ export const createLeadFromChat = async (
     const userId     = new mongoose.Types.ObjectId(req.user!.userId);
     const phone      = req.params.phone.replace(/\D/g, "");
     const last10     = phone.slice(-10);
-    const { name }   = req.body as { name?: string };
+    const createSchema = z.object({
+      name:   z.string().max(100).optional(),
+      email:  z.string().email("Invalid email").optional().or(z.literal("")),
+      status: z.enum([
+        "new","assigned","followup","closed","invalid","cnc","booking",
+        "notinterested","interested","rnr","callback","whatsapp","student",
+      ]).default("new"),
+    });
+    const parsed = createSchema.safeParse(req.body);
+    if (!parsed.success) {
+      sendError(res, parsed.error.issues[0]?.message ?? "Invalid input", 400);
+      return;
+    }
+    const { name: bodyName, email, status } = parsed.data;
 
     const legacyFilter = {
       connectedUserId: userId,
       phone: { $regex: `${last10}$` },
     };
 
-    let displayName = name?.trim();
+    let displayName = bodyName?.trim();
     if (!displayName) {
       const latest = await WhatsAppMessage.findOne(legacyFilter).sort({ createdAt: -1 }).lean();
       displayName = latest?.senderName || phone;
     }
 
     const lead = await Lead.create({
-      name:   displayName,
+      name:     displayName,
       phone,
-      source: "WhatsApp",
-      status: "new",
+      source:   "WhatsApp",
+      status,
+      reporter: req.user!.userId,
+      ...(email ? { email } : {}),
     });
 
     await WhatsAppMessage.updateMany(legacyFilter, { $set: { lead: lead._id } });
