@@ -329,6 +329,22 @@ export class LeadService {
       }
     }
 
+    // ── Date range filter on updatedAt / last updated (IST-aware) ───────────────
+    if (filters.updatedFrom || filters.updatedTo) {
+      const updatedRange: Record<string, Date> = {};
+      if (filters.updatedFrom) {
+        const from = new Date(filters.updatedFrom + "T00:00:00.000+05:30");
+        if (!isNaN(from.getTime())) updatedRange.$gte = from;
+      }
+      if (filters.updatedTo) {
+        const to = new Date(filters.updatedTo + "T23:59:59.999+05:30");
+        if (!isNaN(to.getTime())) updatedRange.$lte = to;
+      }
+      if (Object.keys(updatedRange).length > 0) {
+        query.updatedAt = updatedRange;
+      }
+    }
+
     if (filters.search) {
       const regex = new RegExp(filters.search, "i");
       query.$or = [{ name: regex }, { email: regex }, { phone: regex }];
@@ -628,6 +644,34 @@ export class LeadService {
 
     const query: Record<string, unknown> = { assignedTo: userId };
     if (filters.status) query.status = filters.status;
+
+    // ── Date range filter on createdAt (IST-aware) ──────────────────────────────
+    if (filters.dateFrom || filters.dateTo) {
+      const dateRange: Record<string, Date> = {};
+      if (filters.dateFrom) {
+        const from = new Date(filters.dateFrom + "T00:00:00.000+05:30");
+        if (!isNaN(from.getTime())) dateRange.$gte = from;
+      }
+      if (filters.dateTo) {
+        const to = new Date(filters.dateTo + "T23:59:59.999+05:30");
+        if (!isNaN(to.getTime())) dateRange.$lte = to;
+      }
+      if (Object.keys(dateRange).length > 0) query.createdAt = dateRange;
+    }
+
+    // ── Date range filter on updatedAt / last updated (IST-aware) ───────────────
+    if (filters.updatedFrom || filters.updatedTo) {
+      const updatedRange: Record<string, Date> = {};
+      if (filters.updatedFrom) {
+        const from = new Date(filters.updatedFrom + "T00:00:00.000+05:30");
+        if (!isNaN(from.getTime())) updatedRange.$gte = from;
+      }
+      if (filters.updatedTo) {
+        const to = new Date(filters.updatedTo + "T23:59:59.999+05:30");
+        if (!isNaN(to.getTime())) updatedRange.$lte = to;
+      }
+      if (Object.keys(updatedRange).length > 0) query.updatedAt = updatedRange;
+    }
 
     if (filters.search) {
       const regex = new RegExp(filters.search, "i");

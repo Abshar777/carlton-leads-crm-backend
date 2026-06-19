@@ -158,6 +158,8 @@ export class TeamService {
       unassignedOnly?: string;
       dateFrom?: string;
       dateTo?: string;
+      updatedFrom?: string;
+      updatedTo?: string;
       course?: string;
     }
   ) {
@@ -188,6 +190,20 @@ export class TeamService {
         if (!isNaN(to.getTime())) dateRange.$lte = to;
       }
       if (Object.keys(dateRange).length > 0) query.createdAt = dateRange;
+    }
+
+    // Last-updated range filter (IST-aware, same as main leads)
+    if (filters.updatedFrom || filters.updatedTo) {
+      const updatedRange: Record<string, Date> = {};
+      if (filters.updatedFrom) {
+        const from = new Date(filters.updatedFrom + "T00:00:00.000+05:30");
+        if (!isNaN(from.getTime())) updatedRange.$gte = from;
+      }
+      if (filters.updatedTo) {
+        const to = new Date(filters.updatedTo + "T23:59:59.999+05:30");
+        if (!isNaN(to.getTime())) updatedRange.$lte = to;
+      }
+      if (Object.keys(updatedRange).length > 0) query.updatedAt = updatedRange;
     }
 
     const [leads, total] = await Promise.all([

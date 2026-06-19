@@ -247,6 +247,10 @@ export interface LeadFilters {
   dateFrom?: string;
   /** ISO date string – filter leads created on or before this date (inclusive, end of day) */
   dateTo?: string;
+  /** ISO date string – filter leads last updated on or after this date (inclusive) */
+  updatedFrom?: string;
+  /** ISO date string – filter leads last updated on or before this date (inclusive, end of day) */
+  updatedTo?: string;
   page?: string;
   limit?: string;
   sortBy?: string;
