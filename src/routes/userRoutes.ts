@@ -8,6 +8,7 @@ import {
   getUserProfile,
   updateUser,
   deleteUser,
+  impersonateUser,
 } from "../controllers/userController.js";
 import { exportUserPdf } from "../controllers/exportController.js";
 import { authenticate } from "../middleware/auth.js";
@@ -30,9 +31,10 @@ router.post("/",       checkPermission("users", "create"), createUser);
 // /profile and /profile/export-pdf must come before /:id
 router.get("/profile",            getUserProfile);
 router.get("/profile/export-pdf", exportUserPdf);
-router.get("/:id",     selfOrPermission,                   getUserById);
-router.put("/:id",     checkPermission("users", "edit"),   updateUser);
-router.delete("/:id",  checkPermission("users", "delete"), deleteUser);
+router.get("/:id",            selfOrPermission,                          getUserById);
+router.put("/:id",            checkPermission("users", "edit"),           updateUser);
+router.delete("/:id",         checkPermission("users", "delete"),         deleteUser);
 router.get("/:id/export-pdf", exportUserPdf);
+router.post("/:id/impersonate", checkPermission("impersonate", "create"), impersonateUser);
 
 export default router;

@@ -1,8 +1,9 @@
 import type { Response, NextFunction } from "express";
-import type { AuthenticatedRequest } from "../types/index.js";
+import type { AuthenticatedRequest, IRole } from "../types/index.js";
 import { UserService } from "../services/userService.js";
 import { createUserSchema, updateUserSchema } from "../validations/userValidation.js";
 import { sendSuccess, sendError } from "../utils/response.js";
+import { verifyAccessToken } from "../utils/jwt.js";
 
 const userService = new UserService();
 
@@ -69,6 +70,27 @@ export const deleteUser = async (req: AuthenticatedRequest, res: Response, next:
   try {
     const result = await userService.deleteUser(req.params.id, req.user!.userId);
     sendSuccess(res, result.message);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const impersonateUser = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    // Block nested impersonation — check current token's payload
+    const rawToken = req.headers.authorization?.split(" ")[1] ?? "";
+    const decoded = verifyAccessToken(rawToken);
+    if (decoded.impersonatedBy) {
+      sendError(res, "Cannot impersonate while already impersonating a user", 403);
+      return;
+    }
+
+    const result = await userService.impersonateUser(
+      req.user!.userId,
+      req.params.id,
+      req.user!.role as IRole,
+    );
+    sendSuccess(res, "Impersonation token generated", result);
   } catch (error) {
     next(error);
   }

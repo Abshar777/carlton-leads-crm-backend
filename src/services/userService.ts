@@ -2,8 +2,9 @@ import { User } from "../models/User.js";
 import { Role } from "../models/Role.js";
 import { Team } from "../models/Team.js";
 import type { CreateUserInput, UpdateUserInput } from "../validations/userValidation.js";
-import type { PaginationQuery } from "../types/index.js";
+import type { IRole, PaginationQuery } from "../types/index.js";
 import { buildPagination } from "../utils/response.js";
+import { signAccessToken } from "../utils/jwt.js";
 
 export class UserService {
   async createUser(input: CreateUserInput) {
@@ -135,5 +136,59 @@ export class UserService {
 
     await User.findByIdAndDelete(id);
     return { message: "User deleted successfully" };
+  }
+
+  async impersonateUser(requesterId: string, targetId: string, requesterRole: IRole) {
+    if (requesterId === targetId) {
+      throw Object.assign(new Error("Cannot impersonate yourself"), { statusCode: 400 });
+    }
+
+    const isSuperAdmin = requesterRole.isSystemRole && requesterRole.roleName === "Super Admin";
+
+    if (!isSuperAdmin) {
+      // Non-super-admin: target must share a team with the requester
+      const sharedTeams = await Team.find({
+        $or: [{ leaders: requesterId }, { members: requesterId }],
+      }).lean();
+
+      const targetInTeam = sharedTeams.some((team) =>
+        [...(team.leaders as unknown[]), ...(team.members as unknown[])].some(
+          (m) => String(m) === targetId
+        )
+      );
+
+      if (!targetInTeam) {
+        throw Object.assign(
+          new Error("You can only impersonate users within your team"),
+          { statusCode: 403 }
+        );
+      }
+    }
+
+    const target = await User.findById(targetId).populate("role").lean();
+    if (!target) {
+      throw Object.assign(new Error("User not found"), { statusCode: 404 });
+    }
+    if (target.status === "inactive") {
+      throw Object.assign(new Error("Cannot impersonate an inactive user"), { statusCode: 400 });
+    }
+
+    // Never allow impersonating a Super Admin (unless you are one)
+    const targetRole = target.role as IRole;
+    if (!isSuperAdmin && targetRole.isSystemRole && targetRole.roleName === "Super Admin") {
+      throw Object.assign(new Error("Cannot impersonate a Super Admin"), { statusCode: 403 });
+    }
+
+    const token = signAccessToken(
+      {
+        userId: String(target._id),
+        email: target.email,
+        roleId: String(targetRole._id),
+        impersonatedBy: requesterId,
+      },
+      { expiresIn: "2h" }
+    );
+
+    return { token, user: target };
   }
 }

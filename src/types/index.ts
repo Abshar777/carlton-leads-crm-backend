@@ -20,6 +20,7 @@ export const CRM_MODULES = [
   "roles",
   "leads",
   "queue",
+  "impersonate",
   "teams",
   "courses",
   "reminders",
@@ -65,6 +66,7 @@ export interface JwtPayload {
   userId: string;
   email: string;
   roleId: string;
+  impersonatedBy?: string;
 }
 
 export interface AuthenticatedRequest extends Request {
