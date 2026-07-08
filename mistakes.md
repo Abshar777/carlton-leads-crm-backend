@@ -244,3 +244,29 @@ router.patch("/:teamId/leads/:leadId/assign", authenticate, checkPermission("tea
 **Bug:** When adding `getTeamReminders` aggregation pipeline, typed as `object[]` instead of `PipelineStage[]`. Mongoose aggregation requires the stricter `PipelineStage[]` type from mongoose.
 **Fix:** `import { type PipelineStage } from "mongoose"` and typed pipeline as `PipelineStage[]`.
 **Also:** `preserveNullAndEmpty` is not valid — correct key is `preserveNullAndEmptyArrays` in `$unwind` stage.
+
+---
+
+## [2026-07-07] Zod v4 `.issues` vs `.errors` — request hangs on validation failure
+
+**File/Location**: `src/controllers/tagController.ts` (and any new controller using Zod)
+
+**Root Cause**: Zod v4 (installed as `4.x`) removed the `.errors` property from `ZodError`. The correct property is `.issues`. Writing `err.errors[0].message` inside a `catch (err instanceof z.ZodError)` block throws a `TypeError` because `err.errors` is `undefined`, and that error propagates unhandled — Express v4 never calls `next()` or sends a response, so the client hangs indefinitely.
+
+**Symptom**: Any request that fails Zod validation (missing required field, wrong regex, empty-body PUT refine) causes the server to accept the request but never respond. curl hangs for the full timeout period.
+
+**Broken code**:
+```typescript
+if (err instanceof z.ZodError) {
+  sendError(res, err.errors[0].message, 400); // ❌ Zod v4: .errors is undefined
+}
+```
+
+**Fix**:
+```typescript
+if (err instanceof z.ZodError) {
+  sendError(res, err.issues[0].message, 400); // ✅ Zod v4: use .issues
+}
+```
+
+**Rule**: Always use `err.issues` (not `err.errors`) when handling `ZodError` in this project. The installed Zod is v4. Double-check every controller's catch block.

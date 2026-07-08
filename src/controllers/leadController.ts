@@ -984,3 +984,50 @@ export const addCallLog = async (
     next(error);
   }
 };
+
+// ─── Tags ─────────────────────────────────────────────────────────────────────
+
+const updateLeadTagsSchema = z.object({
+  tagIds: z.array(z.string().min(1)).default([]),
+});
+
+/** PUT /leads/:id/tags */
+export const updateLeadTags = async (
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<void> => {
+  try {
+    const parsed = updateLeadTagsSchema.safeParse(req.body);
+    if (!parsed.success) {
+      sendError(res, "Validation failed", 400, parsed.error.flatten().fieldErrors);
+      return;
+    }
+    const lead = await Lead.findByIdAndUpdate(
+      req.params.id,
+      { $set: { tags: parsed.data.tagIds } },
+      { new: true },
+    ).populate("tags", "name color").lean();
+    if (!lead) {
+      sendError(res, "Lead not found", 404);
+      return;
+    }
+    sendSuccess(res, "Tags updated", lead);
+  } catch (error) {
+    next(error);
+  }
+};
+
+/** GET /leads/my-queue — today's assigned + CNC-due leads for the logged-in user */
+export const getMyQueue = async (
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<void> => {
+  try {
+    const queue = await leadService.getMyQueue(req.user!.userId);
+    sendSuccess(res, "Queue fetched", queue);
+  } catch (error) {
+    next(error);
+  }
+};

@@ -68,7 +68,8 @@ function buildPopulatedQuery(id: string) {
     })
     .populate("course", "name amount status")
     .populate("notes.author", "name email")
-    .populate("activityLogs.performedBy", "name email");
+    .populate("activityLogs.performedBy", "name email")
+    .populate("tags", "name color");
 }
 
 function addLog(
@@ -309,6 +310,10 @@ export class LeadService {
     if (filters.team)       query.team       = filters.team;
     if (filters.reporter)   query.reporter   = filters.reporter;
     if (filters.course)     query.course     = filters.course;
+    if (filters.tags) {
+      const tagIds = filters.tags.split(",").filter(Boolean);
+      if (tagIds.length > 0) query.tags = { $in: tagIds };
+    }
 
     // ── Date range filter on createdAt (IST-aware) ──────────────────────────────
     // Append +05:30 so JS parses the date as IST midnight, not UTC midnight.
@@ -359,6 +364,7 @@ export class LeadService {
         .populate("assignedTo","name email")
         .populate("team",      "name status")
         .populate("course",    "name amount status")
+        .populate("tags",      "name color")
         .sort({ [sortField]: sortOrder })
         .skip(skip)
         .limit(limit)
@@ -475,6 +481,13 @@ export class LeadService {
 
     const prevStatus = lead.status;
     lead.status = status;
+
+    // Stamp cncAt whenever status becomes CNC so the reset scheduler knows when to resurface it
+    if (status === "cnc") {
+      lead.cncAt = new Date();
+    } else if (prevStatus === "cnc") {
+      lead.cncAt = null; // cleared when manually moved out of CNC
+    }
 
     addLog(
       lead as never,
@@ -1114,5 +1127,40 @@ export class LeadService {
 
     await lead.save();
     return buildPopulatedQuery(leadId).lean();
+  }
+
+  // ── Today's Queue ─────────────────────────────────────────────────────────────
+  async getMyQueue(userId: string) {
+    // Start of today in IST (UTC+5:30)
+    const now = new Date();
+    const istOffsetMs = 5.5 * 60 * 60 * 1000;
+    const istNow = new Date(now.getTime() + istOffsetMs);
+    const todayISTMidnight = new Date(
+      Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth(), istNow.getUTCDate()) - istOffsetMs
+    );
+
+    const [assigned, cnc] = await Promise.all([
+      // Assigned leads for this user (any assigned leads, not just today's)
+      Lead.find({ assignedTo: userId, status: "assigned" })
+        .populate("course", "name")
+        .populate("tags", "name color")
+        .populate("assignedTo", "name")
+        .sort({ assignedAt: -1 })
+        .lean(),
+
+      // CNC leads assigned to this user that were marked CNC before today (due for recall)
+      Lead.find({
+        assignedTo: userId,
+        status: "cnc",
+        cncAt: { $lt: todayISTMidnight },
+      })
+        .populate("course", "name")
+        .populate("tags", "name color")
+        .populate("assignedTo", "name")
+        .sort({ cncAt: 1 })
+        .lean(),
+    ]);
+
+    return { assigned, cnc, totalCount: assigned.length + cnc.length };
   }
 }

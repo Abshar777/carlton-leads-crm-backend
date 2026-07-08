@@ -580,3 +580,33 @@ This file documents every service in `backend/src/services/`. Read this before w
 **Filters:** `memberId`, `isDone` ("true"/"false"), `search` (lead name / reminder title / note), `page`, `limit`.
 **Returns:** `{ reminders: [{ reminder, lead: { _id, name, phone, status, assignedTo } }], pagination }`
 **Pipeline:** $match lead → $unwind reminders → optional filters → $sort remindAt ASC → paginate → $lookup assignedTo + createdBy.
+
+---
+
+## TagService — `src/services/tagService.ts`
+
+**Class:** `TagService`
+
+**Method:** `getAllTags()`
+**Returns:** All tags sorted by name, lean objects `{ _id, name, color, createdBy, createdAt, updatedAt }[]`
+
+**Method:** `createTag(name: string, color: string, createdBy: string)`
+**Validates:** Case-insensitive duplicate name check (throws 409 if exists). Creates and returns new Tag document.
+
+**Method:** `updateTag(id: string, updates: { name?: string; color?: string })`
+**Validates:** `mongoose.isValidObjectId` (throws 400 if invalid). Case-insensitive duplicate name check excluding self (throws 409). Returns updated document (new: true).
+
+**Method:** `deleteTag(id: string)`
+**Validates:** `mongoose.isValidObjectId` (throws 400). Deletes tag, then cascades `Lead.updateMany({ tags: id }, { $pull: { tags: id } })` to remove the tag from all leads.
+
+---
+
+## leadService — `getMyQueue` (added 2026-07-08)
+
+**Method:** `getMyQueue(userId: string)`
+**Returns:** `{ assigned: Lead[], cnc: Lead[], totalCount: number }`
+- `assigned`: leads with status "assigned" belonging to the user, sorted newest-first
+- `cnc`: leads with status "cnc" where `cncAt < today's IST midnight` (stale CNC due for recall), sorted oldest-first
+- Both arrays are populated: `course` (name), `tags` (name, color), `assignedTo` (name)
+**Called by:** `leadController.getMyQueue` → `GET /api/v1/leads/my-queue`
+**IST midnight calc:** `Date.UTC(year, month, day) - 5.5 * 60 * 60 * 1000`

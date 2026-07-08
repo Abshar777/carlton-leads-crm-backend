@@ -500,3 +500,46 @@ Each feature documents:
 **Change Log**:
 - Initial PDF export for teams
 - Added user-scoped PDF export
+
+---
+
+## Feature #15 — Tag Manager (2026-07-07)
+
+**Purpose:** Colored tags for categorizing and filtering leads.
+
+**Model:** `src/models/Tag.ts` — fields: `name` (required, max 50), `color` (hex regex), `createdBy` (ObjectId ref User). Indexes on `name` and `createdBy`.
+
+**Routes:** All under `/api/v1/tags`, guarded by `authenticate`:
+- `GET /` → `checkPermission("settings","view")` → list all tags
+- `POST /` → `checkPermission("settings","create")` → create tag
+- `PUT /:id` → `checkPermission("settings","edit")` → update tag
+- `DELETE /:id` → `checkPermission("settings","delete")` → delete tag + cascade pull from all leads
+
+**Lead integration:**
+- `Lead.tags` array of ObjectId refs to Tag — added to Lead model
+- `PUT /api/v1/leads/:id/tags` → `checkPermission("leads","edit")` — replaces tag array on a lead
+- `getLeads` and `buildPopulatedQuery` both populate `tags` with `name color`
+- Tag filter: `filters.tags` (comma-separated IDs) → `query.tags = { $in: tagIds }`
+
+**Zod validation note:** Use `err.issues[0].message` (not `err.errors`) — this project uses Zod v4.
+
+---
+
+## CNC Auto-Reset + Daily Queue (added 2026-07-08)
+
+### CNC Reset Scheduler (`src/services/cncResetScheduler.ts`)
+- Fires at midnight IST every 24h (setTimeout to next midnight, then setInterval 24h)
+- Bulk-resets all leads where `status === "cnc"` and `cncAt < todayISTMidnight` → sets `status = "assigned"`, clears `cncAt = null`
+- Emits `lead:cnc-reset` and `queue:refreshed` per affected user via Socket.io
+- Started in `src/index.ts` inside the server `listen` callback (after Socket.IO is ready)
+
+### My Queue Endpoint
+- **Route:** `GET /api/v1/leads/my-queue` (static route declared before `/:id`)
+- **Auth:** `authenticate` → `checkPermission("leads", "view")`
+- **Controller:** `leadController.getMyQueue`
+- **Service:** `leadService.getMyQueue(userId)`
+- Returns today's "assigned" leads + stale CNC leads due for recall
+
+### cncAt Field on Lead model
+- Added `cncAt: { type: Date, default: null }` to `backend/src/models/Lead.ts`
+- Stamped when `updateLeadStatus` sets status to "cnc"; cleared when leaving "cnc"

@@ -245,6 +245,14 @@ const leadSchema = new Schema<ILead>(
       type: [callLogSchema],
       default: [],
     },
+    tags: {
+      type: [{ type: Schema.Types.ObjectId, ref: "Tag" }],
+      default: [],
+    },
+    cncAt: {
+      type: Date,
+      default: null,
+    },
   },
   {
     timestamps: true,

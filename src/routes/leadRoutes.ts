@@ -31,6 +31,8 @@ import {
   updateCallNotConnected,
   updateCallCount,
   addCallLog,
+  updateLeadTags,
+  getMyQueue,
 } from "../controllers/leadController.js";
 import { authenticate } from "../middleware/auth.js";
 import { checkPermission } from "../middleware/permissions.js";
@@ -59,6 +61,7 @@ const upload = multer({
 router.use(authenticate);
 
 // ─── Bulk / Special routes (must be before /:id) ──────────────────────────────
+router.get("/my-queue",         checkPermission("leads", "view"), getMyQueue);
 router.post("/upload",          checkPermission("leads", "create"), upload.single("file"), uploadLeads);
 router.post("/auto-assign",     checkPermission("leads", "approve"), autoAssignLeads);
 router.patch("/bulk/status",    checkPermission("leads", "edit"),   bulkUpdateLeadStatus);
@@ -97,5 +100,8 @@ router.delete("/:id/reminders/:reminderId",      checkPermission("reminders", "d
 router.post("/:id/payments",                    checkPermission("leads", "edit"), addPayment);
 router.put("/:id/payments/:paymentId",          checkPermission("leads", "edit"), updatePayment);
 router.delete("/:id/payments/:paymentId",       checkPermission("leads", "edit"), deletePayment);
+
+// ─── Tags (nested under lead) ──────────────────────────────────────────────────
+router.put("/:id/tags", checkPermission("leads", "edit"), updateLeadTags);
 
 export default router;

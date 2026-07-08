@@ -133,6 +133,16 @@ export interface TeamFilters {
   limit?: string;
 }
 
+// ─── Tag ──────────────────────────────────────────────────────────────────────
+export interface ITag extends Document {
+  _id: Types.ObjectId;
+  name: string;
+  color: string;
+  createdBy: Types.ObjectId | IUser;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 // ─── Course ───────────────────────────────────────────────────────────────────
 export interface ICourse extends Document {
   _id: Types.ObjectId;
@@ -232,6 +242,8 @@ export interface ILead extends Document {
   campaign?: string;
   callNotConnected: number;
   callCount: number;
+  tags: Types.Array<Types.ObjectId | ITag>;
+  cncAt?: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -251,6 +263,8 @@ export interface LeadFilters {
   updatedFrom?: string;
   /** ISO date string – filter leads last updated on or before this date (inclusive, end of day) */
   updatedTo?: string;
+  /** Comma-separated tag IDs to filter by */
+  tags?: string;
   page?: string;
   limit?: string;
   sortBy?: string;
