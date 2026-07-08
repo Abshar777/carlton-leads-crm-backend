@@ -19,6 +19,7 @@ export const CRM_MODULES = [
   "users",
   "roles",
   "leads",
+  "queue",
   "teams",
   "courses",
   "reminders",

@@ -61,7 +61,7 @@ const upload = multer({
 router.use(authenticate);
 
 // ─── Bulk / Special routes (must be before /:id) ──────────────────────────────
-router.get("/my-queue",         checkPermission("leads", "view"), getMyQueue);
+router.get("/my-queue",         checkPermission("queue", "view"), getMyQueue);
 router.post("/upload",          checkPermission("leads", "create"), upload.single("file"), uploadLeads);
 router.post("/auto-assign",     checkPermission("leads", "approve"), autoAssignLeads);
 router.patch("/bulk/status",    checkPermission("leads", "edit"),   bulkUpdateLeadStatus);
