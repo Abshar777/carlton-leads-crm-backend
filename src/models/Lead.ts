@@ -249,10 +249,6 @@ const leadSchema = new Schema<ILead>(
       type: [{ type: Schema.Types.ObjectId, ref: "Tag" }],
       default: [],
     },
-    cncAt: {
-      type: Date,
-      default: null,
-    },
   },
   {
     timestamps: true,

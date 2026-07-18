@@ -246,7 +246,6 @@ export interface ILead extends Document {
   callNotConnected: number;
   callCount: number;
   tags: Types.Array<Types.ObjectId | ITag>;
-  cncAt?: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }

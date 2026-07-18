@@ -11,7 +11,6 @@ import { errorHandler, notFound } from "./middleware/errorHandler.js";
 import { initSocket } from "./socket.js";
 import { startReminderScheduler } from "./services/reminderScheduler.js";
 import { startBackupScheduler }   from "./services/backupService.js";
-import { startCncResetScheduler } from "./services/cncResetScheduler.js";
 import { initWhatsApp }           from "./services/whatsappService.js";
 
 const app = express();
@@ -51,7 +50,6 @@ const start = async () => {
     // Start after server is listening so Socket.IO is ready for emitToUser
     startReminderScheduler();
     startBackupScheduler();
-    startCncResetScheduler();
     initWhatsApp().catch((err) => console.error("WhatsApp init error:", err));
   });
 };

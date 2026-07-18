@@ -482,13 +482,6 @@ export class LeadService {
     const prevStatus = lead.status;
     lead.status = status;
 
-    // Stamp cncAt whenever status becomes CNC so the reset scheduler knows when to resurface it
-    if (status === "cnc") {
-      lead.cncAt = new Date();
-    } else if (prevStatus === "cnc") {
-      lead.cncAt = null; // cleared when manually moved out of CNC
-    }
-
     addLog(
       lead as never,
       "status_changed",
@@ -1131,14 +1124,6 @@ export class LeadService {
 
   // ── Today's Queue ─────────────────────────────────────────────────────────────
   async getMyQueue(userId: string) {
-    // Start of today in IST (UTC+5:30)
-    const now = new Date();
-    const istOffsetMs = 5.5 * 60 * 60 * 1000;
-    const istNow = new Date(now.getTime() + istOffsetMs);
-    const todayISTMidnight = new Date(
-      Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth(), istNow.getUTCDate()) - istOffsetMs
-    );
-
     const [assigned, cnc] = await Promise.all([
       // Assigned leads for this user (any assigned leads, not just today's)
       Lead.find({ assignedTo: userId, status: "assigned" })
@@ -1148,16 +1133,15 @@ export class LeadService {
         .sort({ assignedAt: -1 })
         .lean(),
 
-      // CNC leads assigned to this user that were marked CNC before today (due for recall)
+      // CNC leads assigned to this user
       Lead.find({
         assignedTo: userId,
         status: "cnc",
-        cncAt: { $lt: todayISTMidnight },
       })
         .populate("course", "name")
         .populate("tags", "name color")
         .populate("assignedTo", "name")
-        .sort({ cncAt: 1 })
+        .sort({ updatedAt: -1 })
         .lean(),
     ]);
 
