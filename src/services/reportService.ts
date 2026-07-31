@@ -310,8 +310,7 @@ export class ReportService {
           teamId:   "$_id.team",
           teamName: { $ifNull: ["$teamInfo.name", "Unassigned"] },
           count:    1,
-          new: 1, assigned: 1, followup: 1, interested: 1,
-          cnc: 1, booking: 1, closed: 1, invalid: 1,
+          ...Object.fromEntries(ALL_STATUSES.map((s) => [s, 1])),
         } as Record<string, unknown>,
       },
     ]);
