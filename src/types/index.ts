@@ -124,6 +124,7 @@ export interface ITeam extends Document {
   members: Types.Array<Types.ObjectId | IUser>;
   status: "active" | "inactive";
   inactiveMembers: Types.Array<Types.ObjectId | IUser>;
+  tags: Types.Array<Types.ObjectId | ITag>;
   settings: ITeamSettings;
   createdAt: Date;
   updatedAt: Date;
@@ -224,6 +225,19 @@ export interface IActivityLog {
   createdAt: Date;
 }
 
+export interface IBookingDetails {
+  batch: string;
+  time: string;
+  mode: "online" | "offline";
+  staffName: string;
+  whatsappNo: string;
+  clientName: string;
+  clientEmail?: string;
+  contactNo: string;
+  bookedAt: Date;
+  bookedBy: Types.ObjectId | IUser;
+}
+
 export interface ILead extends Document {
   _id: Types.ObjectId;
   name: string;
@@ -246,6 +260,7 @@ export interface ILead extends Document {
   callNotConnected: number;
   callCount: number;
   tags: Types.Array<Types.ObjectId | ITag>;
+  bookingDetails?: IBookingDetails;
   createdAt: Date;
   updatedAt: Date;
 }

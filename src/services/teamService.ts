@@ -13,7 +13,8 @@ import { notifyLeadAssignment, notifyBulkLeadAssignment } from "./pushService.js
 function populatedTeam(id: string) {
   return Team.findById(id)
     .populate("leaders", "name email designation status")
-    .populate("members", "name email designation status");
+    .populate("members", "name email designation status")
+    .populate("tags", "name color");
 }
 
 // ─── TeamService ──────────────────────────────────────────────────────────────
@@ -26,11 +27,15 @@ export class TeamService {
     leaders?: string[];
     members?: string[];
     status?: "active" | "inactive";
+    tags?: string[];
   }) {
     const existing = await Team.findOne({ name: data.name.trim() });
     if (existing) throw Object.assign(new Error("A team with this name already exists"), { statusCode: 409 });
 
-    const team = await Team.create(data);
+    const team = await Team.create({
+      ...data,
+      tags: data.tags ? [...new Set(data.tags)] : [],
+    });
     return populatedTeam(team._id.toString());
   }
 
@@ -42,6 +47,7 @@ export class TeamService {
     })
       .populate("leaders", "name email designation status")
       .populate("members", "name email designation status")
+      .populate("tags", "name color")
       .lean();
 
     return team ?? null;
@@ -65,6 +71,7 @@ export class TeamService {
       Team.find(query)
         .populate("leaders", "name email designation")
         .populate("members", "name email designation")
+        .populate("tags", "name color")
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit)
@@ -119,6 +126,7 @@ export class TeamService {
       leaders?: string[];
       members?: string[];
       status?: "active" | "inactive";
+      tags?: string[];
     }
   ) {
     const team = await Team.findById(id);
@@ -129,7 +137,9 @@ export class TeamService {
       if (dup) throw Object.assign(new Error("A team with this name already exists"), { statusCode: 409 });
     }
 
-    Object.assign(team, data);
+    const { tags, ...rest } = data;
+    Object.assign(team, rest);
+    if (tags !== undefined) team.tags = [...new Set(tags)] as never;
     await team.save();
     return populatedTeam(id);
   }

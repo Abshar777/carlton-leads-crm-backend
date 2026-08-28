@@ -21,6 +21,7 @@ const createTeamSchema = z.object({
   leaders: z.array(z.string()).optional(),
   members: z.array(z.string()).optional(),
   status: z.enum(["active", "inactive"]).optional(),
+  tags: z.array(z.string()).optional(),
 });
 
 const updateTeamSchema = z.object({
@@ -29,6 +30,7 @@ const updateTeamSchema = z.object({
   leaders: z.array(z.string()).optional(),
   members: z.array(z.string()).optional(),
   status: z.enum(["active", "inactive"]).optional(),
+  tags: z.array(z.string()).optional(),
 });
 
 const autoAssignTeamSchema = z.object({

@@ -2,6 +2,7 @@ import type { Response, NextFunction } from "express";
 import type { AuthenticatedRequest } from "../types/index.js";
 import { ReportService } from "../services/reportService.js";
 import { sendSuccess, sendError } from "../utils/response.js";
+import { Lead } from "../models/Lead.js";
 
 const svc = new ReportService();
 
@@ -190,6 +191,66 @@ export const getSourceCampaigns = async (
     const { dateFrom, dateTo } = getDateParams(q);
     const data = await svc.getSourceCampaigns(source, dateFrom, dateTo);
     sendSuccess(res, "Campaign breakdown fetched successfully", data);
+  } catch (err) {
+    next(err);
+  }
+};
+
+/** GET /api/reports/bookings?dateFrom=&dateTo=&page=&limit=&search=&team= */
+export const getBookingsReport = async (
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<void> => {
+  try {
+    const q       = req.query as Record<string, string>;
+    const page    = Math.max(1, parseInt(q.page  || "1",  10));
+    const limit   = Math.min(50, parseInt(q.limit || "20", 10));
+    const skip    = (page - 1) * limit;
+    const search  = q.search?.trim() || undefined;
+    const teamId  = q.team?.trim()   || undefined;
+    const { dateFrom, dateTo } = getDateParams(q);
+
+    const match: Record<string, unknown> = { status: "booking", bookingDetails: { $exists: true } };
+    if (teamId) match.team = teamId;
+    if (dateFrom || dateTo) {
+      const dateFilter: Record<string, unknown> = {};
+      if (dateFrom) dateFilter.$gte = new Date(dateFrom);
+      if (dateTo)   dateFilter.$lte = new Date(dateTo + "T23:59:59.999Z");
+      match["bookingDetails.bookedAt"] = dateFilter;
+    }
+    if (search) {
+      match.$or = [
+        { name:  { $regex: search, $options: "i" } },
+        { phone: { $regex: search, $options: "i" } },
+        { email: { $regex: search, $options: "i" } },
+        { "bookingDetails.batch":      { $regex: search, $options: "i" } },
+        { "bookingDetails.staffName":  { $regex: search, $options: "i" } },
+        { "bookingDetails.whatsappNo": { $regex: search, $options: "i" } },
+      ];
+    }
+
+    const [data, total] = await Promise.all([
+      Lead.find(match)
+        .populate("assignedTo", "name email")
+        .populate("team",       "name")
+        .populate("course",     "name amount")
+        .sort({ "bookingDetails.bookedAt": -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      Lead.countDocuments(match),
+    ]);
+
+    sendSuccess(res, "Bookings report fetched", {
+      data,
+      pagination: {
+        total, page, limit,
+        totalPages:  Math.ceil(total / limit),
+        hasNextPage: page * limit < total,
+        hasPrevPage: page > 1,
+      },
+    });
   } catch (err) {
     next(err);
   }

@@ -49,6 +49,12 @@ const teamSchema = new Schema<ITeam>(
         ref: "User",
       },
     ],
+    tags: [
+      {
+        type: Schema.Types.ObjectId,
+        ref: "Tag",
+      },
+    ],
     settings: {
       type: teamSettingsSchema,
       default: () => ({}),

@@ -1,5 +1,5 @@
 import mongoose, { Schema } from "mongoose";
-import type { ILead, ILeadNote, IActivityLog, IReminder, IPayment, ICallLog } from "../types/index.js";
+import type { ILead, ILeadNote, IActivityLog, IReminder, IPayment, ICallLog, IBookingDetails } from "../types/index.js";
 
 // ─── Note Sub-Schema ──────────────────────────────────────────────────────────
 const leadNoteSchema = new Schema<ILeadNote & { createdAt: Date; updatedAt: Date }>(
@@ -130,6 +130,23 @@ const paymentSchema = new Schema<IPayment>(
   { _id: true, timestamps: true }
 );
 
+// ─── Booking Details Sub-Schema ───────────────────────────────────────────────
+const bookingDetailsSchema = new Schema<IBookingDetails>(
+  {
+    batch:       { type: String, required: true, trim: true },
+    time:        { type: String, required: true, trim: true },
+    mode:        { type: String, enum: ["online", "offline"], required: true },
+    staffName:   { type: String, required: true, trim: true },
+    whatsappNo:  { type: String, required: true, trim: true },
+    clientName:  { type: String, required: true, trim: true },
+    clientEmail: { type: String, trim: true, lowercase: true },
+    contactNo:   { type: String, required: true, trim: true },
+    bookedAt:    { type: Date, default: Date.now },
+    bookedBy:    { type: Schema.Types.ObjectId, ref: "User", required: true },
+  },
+  { _id: false }
+);
+
 // ─── Call Log Sub-Schema ──────────────────────────────────────────────────────
 const callLogSchema = new Schema<ICallLog>(
   {
@@ -248,6 +265,10 @@ const leadSchema = new Schema<ILead>(
     tags: {
       type: [{ type: Schema.Types.ObjectId, ref: "Tag" }],
       default: [],
+    },
+    bookingDetails: {
+      type: bookingDetailsSchema,
+      default: undefined,
     },
   },
   {

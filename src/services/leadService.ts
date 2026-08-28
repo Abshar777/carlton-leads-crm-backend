@@ -474,6 +474,11 @@ export class LeadService {
     id: string,
     status: LeadStatus,
     performedById: string,
+    bookingDetails?: {
+      batch: string; time: string; mode: "online" | "offline";
+      staffName: string; whatsappNo: string; clientName: string;
+      clientEmail?: string; contactNo: string;
+    },
   ) {
     const lead = await Lead.findById(id);
     if (!lead)
@@ -481,6 +486,14 @@ export class LeadService {
 
     const prevStatus = lead.status;
     lead.status = status;
+
+    if (status === "booking" && bookingDetails) {
+      (lead as never as { bookingDetails: unknown }).bookingDetails = {
+        ...bookingDetails,
+        bookedAt: new Date(),
+        bookedBy: performedById,
+      };
+    }
 
     addLog(
       lead as never,

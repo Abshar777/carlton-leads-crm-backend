@@ -46,8 +46,24 @@ const updateLeadSchema = z.object({
   assignedTo: z.string().optional().nullable(),
 });
 
+const bookingDetailsSchema = z.object({
+  batch:       z.string().min(1, "Batch is required"),
+  time:        z.string().min(1, "Time is required"),
+  mode:        z.enum(["online", "offline"]),
+  staffName:   z.string().min(1),
+  whatsappNo:  z.string().min(1, "WhatsApp number is required"),
+  clientName:  z.string().min(1),
+  clientEmail: z.string().optional(),
+  contactNo:   z.string().min(1),
+});
+
 const updateStatusSchema = z.object({
   status: z.enum(["new", "assigned", "followup", "closed", "invalid", "cnc", "booking", "notinterested", "interested", "rnr", "callback", "whatsapp", "student"]),
+  bookingDetails: bookingDetailsSchema.optional(),
+}).superRefine((data, ctx) => {
+  if (data.status === "booking" && !data.bookingDetails) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Booking details are required when status is booking", path: ["bookingDetails"] });
+  }
 });
 
 const assignLeadSchema = z.object({
@@ -291,6 +307,7 @@ export const updateLeadStatus = async (
       req.params.id,
       parsed.data.status,
       req.user!.userId,
+      parsed.data.bookingDetails,
     );
     sendSuccess(res, "Lead status updated successfully", lead);
   } catch (error) {
