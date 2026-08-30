@@ -60,6 +60,7 @@ const bookingDetailsSchema = z.object({
 const updateStatusSchema = z.object({
   status: z.enum(["new", "assigned", "followup", "closed", "invalid", "cnc", "booking", "notinterested", "interested", "rnr", "callback", "whatsapp", "student"]),
   bookingDetails: bookingDetailsSchema.optional(),
+  reminderAt: z.string().optional(),
 }).superRefine((data, ctx) => {
   if (data.status === "booking" && !data.bookingDetails) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Booking details are required when status is booking", path: ["bookingDetails"] });
@@ -308,6 +309,7 @@ export const updateLeadStatus = async (
       parsed.data.status,
       req.user!.userId,
       parsed.data.bookingDetails,
+      parsed.data.reminderAt,
     );
     sendSuccess(res, "Lead status updated successfully", lead);
   } catch (error) {

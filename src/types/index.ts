@@ -167,6 +167,8 @@ export type ActivityAction =
   | "status_changed"
   | "lead_assigned"
   | "team_assigned"
+  | "team_changed"
+  | "team_shared"
   | "note_added"
   | "note_updated"
   | "note_deleted"
@@ -249,6 +251,8 @@ export interface ILead extends Document {
   assignedTo?: Types.ObjectId | IUser;
   assignedAt?: Date | null;
   team?: Types.ObjectId | ITeam;
+  previousTeam?: Types.ObjectId | ITeam;
+  sharedWithTeams: Types.Array<Types.ObjectId | ITeam>;
   reporter: Types.ObjectId | IUser;
   notes: Types.DocumentArray<ILeadNote & Document>;
   reminders: Types.DocumentArray<IReminder & Document>;
@@ -282,6 +286,8 @@ export interface LeadFilters {
   updatedTo?: string;
   /** Comma-separated tag IDs to filter by */
   tags?: string;
+  /** Filter leads whose previousTeam matches this team ID (transferred-out leads) */
+  previousTeam?: string;
   page?: string;
   limit?: string;
   sortBy?: string;

@@ -1,6 +1,9 @@
+import { Types } from "mongoose";
 import { Lead } from "../models/Lead.js";
+import { getOrCreateSettings } from "../models/AppSettings.js";
 import { User } from "../models/User.js";
 import { Team } from "../models/Team.js";
+import { Tag } from "../models/Tag.js";
 import { buildPagination } from "../utils/response.js";
 import { emitTeamUpdate, emitToUser } from "../socket.js";
 import { sendPushToUsers, notifyLeadAssignment } from "./pushService.js";
@@ -117,6 +120,13 @@ async function emitActivity(
     changes:  log.changes ?? undefined,
     createdAt: (log.createdAt as Date).toISOString(),
   });
+}
+
+/** Find the first team whose tag has a given name (case-insensitive). */
+async function findTeamByTagName(tagName: string): Promise<{ _id: Types.ObjectId } | null> {
+  const tag = await Tag.findOne({ name: new RegExp(`^${tagName}$`, "i") }).select("_id").lean();
+  if (!tag) return null;
+  return Team.findOne({ tags: tag._id, status: "active" }).select("_id").lean();
 }
 
 // ── Notify team leaders about a lead event ────────────────────────────────────
@@ -292,13 +302,19 @@ export class LeadService {
     // ── Role-scoped visibility ────────────────────────────────────────────────
     const isSuperAdmin =(userRole?.roleName === "Super Admin" || userRole?.roleName === "Reporter");
 
+    // scopeOr holds the visibility condition for team leaders (may combine with search $or via $and)
+    let scopeOr: Record<string, unknown>[] | null = null;
+
     if (!isSuperAdmin && userId) {
       // Check if the user is a leader of any team
       const leaderTeam = await Team.findOne({ leaders: userId }).select("_id");
 
       if (leaderTeam) {
-        // Team leader: scoped to their team only
-        query.team = leaderTeam._id;
+        // Team leader: own team leads + leads shared with this team (redeposit access)
+        scopeOr = [
+          { team: leaderTeam._id },
+          { sharedWithTeams: leaderTeam._id },
+        ];
       } else {
         // Regular member / BDE / any non-admin role: only their assigned leads
         query.assignedTo = userId;
@@ -306,9 +322,10 @@ export class LeadService {
     }
    
     if (filters.status)     query.status     = filters.status;
-    if (filters.assignedTo) query.assignedTo = filters.assignedTo;
-    if (filters.team)       query.team       = filters.team;
-    if (filters.reporter)   query.reporter   = filters.reporter;
+    if (filters.assignedTo)   query.assignedTo   = filters.assignedTo;
+    if (filters.team)         query.team         = filters.team;
+    if (filters.reporter)     query.reporter     = filters.reporter;
+    if (filters.previousTeam) query.previousTeam = filters.previousTeam;
     if (filters.course)     query.course     = filters.course;
     if (filters.tags) {
       const tagIds = filters.tags.split(",").filter(Boolean);
@@ -352,7 +369,14 @@ export class LeadService {
 
     if (filters.search) {
       const regex = new RegExp(filters.search, "i");
-      query.$or = [{ name: regex }, { email: regex }, { phone: regex }];
+      const searchOr = [{ name: regex }, { email: regex }, { phone: regex }];
+      if (scopeOr) {
+        query.$and = [{ $or: scopeOr }, { $or: searchOr }];
+      } else {
+        query.$or = searchOr;
+      }
+    } else if (scopeOr) {
+      query.$or = scopeOr;
     }
 
     const sortField = filters.sortBy ?? "createdAt";
@@ -360,11 +384,13 @@ export class LeadService {
 
     const [leads, total] = await Promise.all([
       Lead.find(query)
-        .populate("reporter",  "name email")
-        .populate("assignedTo","name email")
-        .populate("team",      "name status")
-        .populate("course",    "name amount status")
-        .populate("tags",      "name color")
+        .populate("reporter",        "name email")
+        .populate("assignedTo",      "name email")
+        .populate("team",            "name status")
+        .populate("previousTeam",    "name status")
+        .populate("sharedWithTeams", "name status")
+        .populate("course",          "name amount status")
+        .populate("tags",            "name color")
         .sort({ [sortField]: sortOrder })
         .skip(skip)
         .limit(limit)
@@ -479,6 +505,7 @@ export class LeadService {
       staffName: string; whatsappNo: string; clientName: string;
       clientEmail?: string; contactNo: string;
     },
+    reminderAt?: string,
   ) {
     const lead = await Lead.findById(id);
     if (!lead)
@@ -493,6 +520,19 @@ export class LeadService {
         bookedAt: new Date(),
         bookedBy: performedById,
       };
+
+      if (reminderAt) {
+        const reminderDate = new Date(reminderAt);
+        if (!isNaN(reminderDate.getTime())) {
+          lead.reminders.push({
+            title: `Booking: ${bookingDetails.batch}`,
+            note: `Client: ${bookingDetails.clientName} | Mode: ${bookingDetails.mode} | Time: ${bookingDetails.time} | WhatsApp: ${bookingDetails.whatsappNo}`,
+            remindAt: reminderDate,
+            createdBy: new Types.ObjectId(performedById),
+            isDone: false,
+          } as never);
+        }
+      }
     }
 
     addLog(
@@ -505,6 +545,57 @@ export class LeadService {
 
     await lead.save();
     void emitActivity(lead as never);
+
+    // ── Workflow automation ──────────────────────────────────────────────────────
+    void (async () => {
+      const settings = await getOrCreateSettings();
+      if (!settings.workflowEnabled) return;
+
+      if (status === "booking") {
+        // Transfer lead from Booking Team → Closing Team
+        const closingTeam = await findTeamByTagName("Closing");
+        if (closingTeam) {
+          const previousTeamId = lead.team ?? null;
+          await Lead.updateOne(
+            { _id: lead._id },
+            {
+              $set: { team: closingTeam._id, previousTeam: previousTeamId },
+              $addToSet: { sharedWithTeams: [] }, // reset doesn't hurt
+            },
+          );
+          addLog(
+            lead as never,
+            "team_changed",
+            `Lead auto-transferred to Closing Team by workflow`,
+            performedById,
+            { team: { from: previousTeamId?.toString() ?? null, to: closingTeam._id.toString() } },
+          );
+          await lead.save();
+          void emitActivity(lead as never);
+        }
+      }
+
+      if (status === "closed") {
+        // Grant Redeposit Team shared access
+        const redepTeam = await findTeamByTagName("Redep");
+        if (redepTeam) {
+          await Lead.updateOne(
+            { _id: lead._id },
+            { $addToSet: { sharedWithTeams: redepTeam._id } },
+          );
+          addLog(
+            lead as never,
+            "team_shared",
+            `Lead shared with Redeposit Team by workflow`,
+            performedById,
+            {},
+          );
+          await lead.save();
+          void emitActivity(lead as never);
+        }
+      }
+    })();
+
     // Notify team leaders of status change
     void notifyTeamLeaders(lead as never, performedById, {
       title: "Lead Status Updated",

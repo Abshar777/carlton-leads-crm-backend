@@ -32,10 +32,14 @@ export class TeamService {
     const existing = await Team.findOne({ name: data.name.trim() });
     if (existing) throw Object.assign(new Error("A team with this name already exists"), { statusCode: 409 });
 
-    const team = await Team.create({
-      ...data,
-      tags: data.tags ? [...new Set(data.tags)] : [],
-    });
+    const tags = data.tags ? [...new Set(data.tags)] : [];
+    if (tags.length > 1) throw Object.assign(new Error("A team can only have one tag"), { statusCode: 400 });
+    if (tags.length === 1) {
+      const taken = await Team.findOne({ tags: tags[0] }).select("name").lean();
+      if (taken) throw Object.assign(new Error(`Tag is already assigned to team "${taken.name}"`), { statusCode: 409 });
+    }
+
+    const team = await Team.create({ ...data, tags });
     return populatedTeam(team._id.toString());
   }
 
@@ -139,7 +143,15 @@ export class TeamService {
 
     const { tags, ...rest } = data;
     Object.assign(team, rest);
-    if (tags !== undefined) team.tags = [...new Set(tags)] as never;
+    if (tags !== undefined) {
+      const uniqueTags = [...new Set(tags)];
+      if (uniqueTags.length > 1) throw Object.assign(new Error("A team can only have one tag"), { statusCode: 400 });
+      if (uniqueTags.length === 1) {
+        const taken = await Team.findOne({ tags: uniqueTags[0], _id: { $ne: id } }).select("name").lean();
+        if (taken) throw Object.assign(new Error(`Tag is already assigned to team "${taken.name}"`), { statusCode: 409 });
+      }
+      team.tags = uniqueTags as never;
+    }
     await team.save();
     return populatedTeam(id);
   }

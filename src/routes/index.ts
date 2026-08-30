@@ -13,6 +13,7 @@ import aiRoutes from "./aiRoutes.js";
 import backupRoutes    from "./backupRoutes.js";
 import whatsappRoutes from "./whatsappRoutes.js";
 import tagRoutes from "./tagRoutes.js";
+import appSettingsRoutes from "./appSettingsRoutes.js";
 
 const router = Router();
 
@@ -30,6 +31,7 @@ router.use("/ai",      aiRoutes);
 router.use("/backup",    backupRoutes);
 router.use("/whatsapp", whatsappRoutes);
 router.use("/tags",    tagRoutes);
+router.use("/settings/app", appSettingsRoutes);
 
 // Health check
 router.get("/health", (_req, res) => {

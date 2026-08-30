@@ -34,6 +34,8 @@ const activityLogSchema = new Schema<IActivityLog>(
         "status_changed",
         "lead_assigned",
         "team_assigned",
+        "team_changed",
+        "team_shared",
         "note_added",
         "note_updated",
         "note_deleted",
@@ -216,6 +218,15 @@ const leadSchema = new Schema<ILead>(
       type: Schema.Types.ObjectId,
       ref: "Team",
       default: null,
+    },
+    previousTeam: {
+      type: Schema.Types.ObjectId,
+      ref: "Team",
+      default: null,
+    },
+    sharedWithTeams: {
+      type: [{ type: Schema.Types.ObjectId, ref: "Team" }],
+      default: [],
     },
     reporter: {
       type: Schema.Types.ObjectId,
