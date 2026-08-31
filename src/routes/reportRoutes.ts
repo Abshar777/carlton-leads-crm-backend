@@ -13,6 +13,7 @@ import {
   getSourceAnalytics,
   getSourceCampaigns,
   getBookingsReport,
+  getClosingsReport,
 } from "../controllers/reportController.js";
 import { exportExcel, exportPdf } from "../controllers/exportController.js";
 
@@ -37,8 +38,9 @@ router.get("/revenue/overview",  getRevenueOverview);
 router.get("/revenue/timeline",  getRevenueTimeline);
 router.get("/revenue/teams",     getRevenueTeams);
 
-// Bookings report
+// Bookings & Closings reports
 router.get("/bookings", getBookingsReport);
+router.get("/closings", getClosingsReport);
 
 // Export routes  (?dateFrom=YYYY-MM-DD&dateTo=YYYY-MM-DD  — both optional)
 router.get("/export/excel",   exportExcel);

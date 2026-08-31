@@ -197,64 +197,96 @@ export const getSourceCampaigns = async (
 };
 
 /** GET /api/reports/bookings?dateFrom=&dateTo=&page=&limit=&search=&team= */
-export const getBookingsReport = async (
-  req: AuthenticatedRequest,
-  res: Response,
-  next: NextFunction,
-): Promise<void> => {
-  try {
-    const q       = req.query as Record<string, string>;
-    const page    = Math.max(1, parseInt(q.page  || "1",  10));
-    const limit   = Math.min(50, parseInt(q.limit || "20", 10));
-    const skip    = (page - 1) * limit;
-    const search  = q.search?.trim() || undefined;
-    const teamId  = q.team?.trim()   || undefined;
-    const { dateFrom, dateTo } = getDateParams(q);
+function buildStatusReport(status: string, defaultDateField: string) {
+  return async (
+    req: AuthenticatedRequest,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> => {
+    try {
+      const q          = req.query as Record<string, string>;
+      const page       = Math.max(1, parseInt(q.page  || "1",  10));
+      const limit      = Math.min(100, parseInt(q.limit || "20", 10));
+      const skip       = (page - 1) * limit;
+      const search     = q.search?.trim()    || undefined;
+      const teamId     = q.team?.trim()      || undefined;
+      const assignedTo = q.assignedTo?.trim()|| undefined;
+      // sortBy: which date field to sort on — bookedAt | closedAt | createdAt | updatedAt
+      const sortBy     = q.sortBy  || defaultDateField;
+      const sortOrder  = q.sortOrder === "asc" ? 1 : -1;
+      // dateField: which date field the dateFrom/dateTo range applies to
+      const dateField  = q.dateField || defaultDateField;
+      const { dateFrom, dateTo } = getDateParams(q);
 
-    const match: Record<string, unknown> = { status: "booking", bookingDetails: { $exists: true } };
-    if (teamId) match.team = teamId;
-    if (dateFrom || dateTo) {
-      const dateFilter: Record<string, unknown> = {};
-      if (dateFrom) dateFilter.$gte = new Date(dateFrom);
-      if (dateTo)   dateFilter.$lte = new Date(dateTo + "T23:59:59.999Z");
-      match["bookingDetails.bookedAt"] = dateFilter;
+      const match: Record<string, unknown> = { status };
+      if (status === "booking") match.bookingDetails = { $exists: true };
+      if (teamId)     match.team       = teamId;
+      if (assignedTo) match.assignedTo = assignedTo;
+
+      if (dateFrom || dateTo) {
+        const dateFilter: Record<string, unknown> = {};
+        if (dateFrom) dateFilter.$gte = new Date(dateFrom);
+        if (dateTo)   dateFilter.$lte = new Date(dateTo + "T23:59:59.999Z");
+        // Map friendly names to actual Mongo field paths
+        const fieldMap: Record<string, string> = {
+          bookedAt:  "bookingDetails.bookedAt",
+          createdAt: "createdAt",
+          updatedAt: "updatedAt",
+        };
+        match[fieldMap[dateField] ?? dateField] = dateFilter;
+      }
+
+      if (search) {
+        match.$or = [
+          { name:  { $regex: search, $options: "i" } },
+          { phone: { $regex: search, $options: "i" } },
+          { email: { $regex: search, $options: "i" } },
+          { "bookingDetails.clientName":  { $regex: search, $options: "i" } },
+          { "bookingDetails.batch":       { $regex: search, $options: "i" } },
+          { "bookingDetails.staffName":   { $regex: search, $options: "i" } },
+          { "bookingDetails.whatsappNo":  { $regex: search, $options: "i" } },
+          { "bookingDetails.contactNo":   { $regex: search, $options: "i" } },
+          { "bookingDetails.clientEmail": { $regex: search, $options: "i" } },
+        ];
+      }
+
+      const sortFieldMap: Record<string, string> = {
+        bookedAt:  "bookingDetails.bookedAt",
+        createdAt: "createdAt",
+        updatedAt: "updatedAt",
+      };
+      const sortField = sortFieldMap[sortBy] ?? "createdAt";
+      const sortSpec: Record<string, 1 | -1> = { [sortField]: sortOrder };
+
+      const [data, total] = await Promise.all([
+        Lead.find(match)
+          .populate("assignedTo", "name email")
+          .populate("team",       "name")
+          .populate("course",     "name amount")
+          .sort(sortSpec)
+          .skip(skip)
+          .limit(limit)
+          .lean(),
+        Lead.countDocuments(match),
+      ]);
+
+      sendSuccess(res, `${status} report fetched`, {
+        data,
+        pagination: {
+          total, page, limit,
+          totalPages:  Math.ceil(total / limit),
+          hasNextPage: page * limit < total,
+          hasPrevPage: page > 1,
+        },
+      });
+    } catch (err) {
+      next(err);
     }
-    if (search) {
-      match.$or = [
-        { name:  { $regex: search, $options: "i" } },
-        { phone: { $regex: search, $options: "i" } },
-        { email: { $regex: search, $options: "i" } },
-        { "bookingDetails.batch":      { $regex: search, $options: "i" } },
-        { "bookingDetails.staffName":  { $regex: search, $options: "i" } },
-        { "bookingDetails.whatsappNo": { $regex: search, $options: "i" } },
-      ];
-    }
+  };
+}
 
-    const [data, total] = await Promise.all([
-      Lead.find(match)
-        .populate("assignedTo", "name email")
-        .populate("team",       "name")
-        .populate("course",     "name amount")
-        .sort({ "bookingDetails.bookedAt": -1 })
-        .skip(skip)
-        .limit(limit)
-        .lean(),
-      Lead.countDocuments(match),
-    ]);
-
-    sendSuccess(res, "Bookings report fetched", {
-      data,
-      pagination: {
-        total, page, limit,
-        totalPages:  Math.ceil(total / limit),
-        hasNextPage: page * limit < total,
-        hasPrevPage: page > 1,
-      },
-    });
-  } catch (err) {
-    next(err);
-  }
-};
+export const getBookingsReport = buildStatusReport("booking", "bookedAt");
+export const getClosingsReport = buildStatusReport("closed",  "updatedAt");
 
 /** GET /api/reports/revenue/teams?dateFrom=&dateTo= */
 export const getRevenueTeams = async (
