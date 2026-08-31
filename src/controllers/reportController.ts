@@ -3,6 +3,7 @@ import type { AuthenticatedRequest } from "../types/index.js";
 import { ReportService } from "../services/reportService.js";
 import { sendSuccess, sendError } from "../utils/response.js";
 import { Lead } from "../models/Lead.js";
+import { User } from "../models/User.js";
 
 const svc = new ReportService();
 
@@ -287,6 +288,112 @@ function buildStatusReport(status: string, defaultDateField: string) {
 
 export const getBookingsReport = buildStatusReport("booking", "bookedAt");
 export const getClosingsReport = buildStatusReport("closed",  "updatedAt");
+
+const ALL_LEAD_STATUSES = [
+  "new","assigned","followup","interested","cnc","booking",
+  "notinterested","closed","invalid","rnr","callback","whatsapp","student",
+] as const;
+
+/**
+ * GET /api/reports/team-member-report
+ * ?teamId=...&dateFrom=YYYY-MM-DD&dateTo=YYYY-MM-DD
+ *
+ * Returns per-member lead status breakdown for a team.
+ */
+export const getTeamMemberReport = async (
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<void> => {
+  try {
+    const q      = req.query as Record<string, string>;
+    const teamId = q.teamId?.trim();
+    if (!teamId) {
+      sendError(res, "teamId is required", 400);
+      return;
+    }
+
+    const { dateFrom, dateTo } = getDateParams(q);
+
+    const dateFilter: Record<string, unknown> = {};
+    if (dateFrom) dateFilter.$gte = new Date(dateFrom);
+    if (dateTo)   dateFilter.$lte = new Date(dateTo + "T23:59:59.999Z");
+
+    const matchBase: Record<string, unknown> = { team: teamId };
+    if (dateFrom || dateTo) matchBase.createdAt = dateFilter;
+
+    // Aggregate: group by assignedTo + status → counts
+    const agg = await Lead.aggregate([
+      { $match: matchBase },
+      {
+        $group: {
+          _id:    { user: "$assignedTo", status: "$status" },
+          count:  { $sum: 1 },
+        },
+      },
+    ]);
+
+    // Get all members of this team (to include members with 0 leads)
+    const members = await User.find({ team: teamId })
+      .select("_id name email role")
+      .populate("role", "roleName")
+      .lean();
+
+    // Build member map
+    type StatusCounts = Record<string, number>;
+    const memberMap = new Map<string, { member: typeof members[0]; counts: StatusCounts; total: number }>();
+
+    for (const m of members) {
+      const id = (m._id as { toString(): string }).toString();
+      const counts: StatusCounts = {};
+      for (const s of ALL_LEAD_STATUSES) counts[s] = 0;
+      memberMap.set(id, { member: m, counts, total: 0 });
+    }
+
+    // Fill in lead counts (also catch leads assigned to users no longer in team)
+    const unknownUsers = new Map<string, StatusCounts & { total: number }>();
+    for (const row of agg) {
+      const userId  = row._id.user?.toString() ?? "unassigned";
+      const status  = row._id.status as string;
+      const count   = row.count as number;
+
+      if (memberMap.has(userId)) {
+        const entry = memberMap.get(userId)!;
+        entry.counts[status] = (entry.counts[status] ?? 0) + count;
+        entry.total += count;
+      } else {
+        if (!unknownUsers.has(userId)) {
+          const c: StatusCounts & { total: number } = { total: 0 };
+          for (const s of ALL_LEAD_STATUSES) c[s] = 0;
+          unknownUsers.set(userId, c);
+        }
+        const u = unknownUsers.get(userId)!;
+        u[status] = (u[status] ?? 0) + count;
+        u.total += count;
+      }
+    }
+
+    // Totals row
+    const totals: StatusCounts = {};
+    for (const s of ALL_LEAD_STATUSES) totals[s] = 0;
+    let grandTotal = 0;
+
+    const rows = Array.from(memberMap.values()).map(({ member, counts, total }) => {
+      for (const s of ALL_LEAD_STATUSES) totals[s] = (totals[s] ?? 0) + (counts[s] ?? 0);
+      grandTotal += total;
+      return { member, counts, total };
+    });
+
+    sendSuccess(res, "Team member report fetched", {
+      rows,
+      totals,
+      grandTotal,
+      statuses: ALL_LEAD_STATUSES,
+    });
+  } catch (err) {
+    next(err);
+  }
+};
 
 /** GET /api/reports/revenue/teams?dateFrom=&dateTo= */
 export const getRevenueTeams = async (
