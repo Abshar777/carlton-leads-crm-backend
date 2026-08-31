@@ -122,11 +122,16 @@ async function emitActivity(
   });
 }
 
-/** Find the first team whose tag has a given name (case-insensitive). */
+/** Find the first active team whose tag matches the given name (case-insensitive). */
 async function findTeamByTagName(tagName: string): Promise<{ _id: Types.ObjectId } | null> {
   const tag = await Tag.findOne({ name: new RegExp(`^${tagName}$`, "i") }).select("_id").lean();
   if (!tag) return null;
   return Team.findOne({ tags: tag._id, status: "active" }).select("_id").lean();
+}
+
+/** Find the Dummy Team (the entry-point team that collects all new leads). */
+async function findDummyTeam(): Promise<{ _id: Types.ObjectId } | null> {
+  return findTeamByTagName("Dummy");
 }
 
 // ── Notify team leaders about a lead event ────────────────────────────────────
@@ -255,17 +260,20 @@ export class LeadService {
       );
     }
 
-    // If no team was selected, auto-detect the creator's team so the lead
-    // is visible to the team leader and shows up in team-scoped reports.
+    // When workflow is enabled, always route new leads to the Dummy Team regardless of
+    // what team (if any) was selected. The Dummy Team is the entry point of the workflow.
     let resolvedTeamId = data.team || null;
-    if (!resolvedTeamId) {
+    const workflowSettings = await getOrCreateSettings();
+    if (workflowSettings.workflowEnabled) {
+      const dummyTeam = await findDummyTeam();
+      if (dummyTeam) resolvedTeamId = dummyTeam._id.toString();
+    } else if (!resolvedTeamId) {
+      // Workflow off — fall back to auto-detect creator's team
       const creatorTeam = await Team.findOne({
         $or: [{ members: reporterId }, { leaders: reporterId }],
         status: "active",
       }).select("_id").lean();
-      if (creatorTeam) {
-        resolvedTeamId = creatorTeam._id.toString();
-      }
+      if (creatorTeam) resolvedTeamId = creatorTeam._id.toString();
     }
 
     const lead = await Lead.create({
@@ -887,6 +895,14 @@ export class LeadService {
       return { inserted: [], skipped: skippedDuplicates.length + skippedInvalid.length, skippedPhones: [...skippedDuplicates, ...skippedInvalid] };
     }
 
+    // When workflow is enabled, route all uploaded leads to the Dummy Team
+    const bulkSettings = await getOrCreateSettings();
+    let bulkTeamId: string | null = null;
+    if (bulkSettings.workflowEnabled) {
+      const dummyTeam = await findDummyTeam();
+      if (dummyTeam) bulkTeamId = dummyTeam._id.toString();
+    }
+
     const leadsWithReporter = toInsert.map(({ _normalizedPhone: _, ...lead }) => {
       const email =
         lead.email && EMAIL_RE.test(lead.email.trim())
@@ -897,6 +913,7 @@ export class LeadService {
         ...lead,
         email,
         reporter: reporterId,
+        ...(bulkTeamId ? { team: bulkTeamId } : {}),
         notes: lead.notes
           ? [{ content: lead.notes, author: reporterId }]
           : [],

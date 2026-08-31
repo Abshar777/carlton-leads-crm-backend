@@ -3,6 +3,7 @@ import { Team } from "../models/Team.js";
 import { Lead } from "../models/Lead.js";
 import { User } from "../models/User.js";
 import { TeamMessage } from "../models/TeamMessage.js";
+import { Tag } from "../models/Tag.js";
 import { buildPagination } from "../utils/response.js";
 import type { TeamFilters, ITeam, IUser } from "../types/index.js";
 import { emitToUser } from "../socket.js";
@@ -35,8 +36,14 @@ export class TeamService {
     const tags = data.tags ? [...new Set(data.tags)] : [];
     if (tags.length > 1) throw Object.assign(new Error("A team can only have one tag"), { statusCode: 400 });
     if (tags.length === 1) {
-      const taken = await Team.findOne({ tags: tags[0] }).select("name").lean();
-      if (taken) throw Object.assign(new Error(`Tag is already assigned to team "${taken.name}"`), { statusCode: 409 });
+      // Only Closing and Redep tags are exclusive (one team only).
+      // Booking and Dummy tags can be shared across multiple teams.
+      const tagDoc = await Tag.findById(tags[0]).select("name").lean();
+      const exclusive = tagDoc && /^(closing|redep)$/i.test(tagDoc.name);
+      if (exclusive) {
+        const taken = await Team.findOne({ tags: tags[0] }).select("name").lean();
+        if (taken) throw Object.assign(new Error(`Tag is already assigned to team "${taken.name}"`), { statusCode: 409 });
+      }
     }
 
     const team = await Team.create({ ...data, tags });
@@ -147,8 +154,12 @@ export class TeamService {
       const uniqueTags = [...new Set(tags)];
       if (uniqueTags.length > 1) throw Object.assign(new Error("A team can only have one tag"), { statusCode: 400 });
       if (uniqueTags.length === 1) {
-        const taken = await Team.findOne({ tags: uniqueTags[0], _id: { $ne: id } }).select("name").lean();
-        if (taken) throw Object.assign(new Error(`Tag is already assigned to team "${taken.name}"`), { statusCode: 409 });
+        const tagDoc = await Tag.findById(uniqueTags[0]).select("name").lean();
+        const exclusive = tagDoc && /^(closing|redep)$/i.test(tagDoc.name);
+        if (exclusive) {
+          const taken = await Team.findOne({ tags: uniqueTags[0], _id: { $ne: id } }).select("name").lean();
+          if (taken) throw Object.assign(new Error(`Tag is already assigned to team "${taken.name}"`), { statusCode: 409 });
+        }
       }
       team.tags = uniqueTags as never;
     }
