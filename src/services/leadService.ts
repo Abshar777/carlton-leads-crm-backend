@@ -299,7 +299,7 @@ export class LeadService {
   async getLeads(filters: LeadFilters, userId?: string, userRole?: IRole) {
     const page = Math.max(1, parseInt(filters.page ?? "1", 10));
     const limit = Math.min(
-      100,
+      300,
       Math.max(1, parseInt(filters.limit ?? "10", 10)),
     );
     const skip = (page - 1) * limit;
@@ -755,7 +755,7 @@ export class LeadService {
   async getLeadsByUser(userId: string, filters: LeadFilters) {
     const page = Math.max(1, parseInt(filters.page ?? "1", 10));
     const limit = Math.min(
-      100,
+      300,
       Math.max(1, parseInt(filters.limit ?? "10", 10)),
     );
     const skip = (page - 1) * limit;
