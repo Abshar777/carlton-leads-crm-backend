@@ -4,6 +4,8 @@ import { ReportService } from "../services/reportService.js";
 import { sendSuccess, sendError } from "../utils/response.js";
 import { Lead } from "../models/Lead.js";
 import { User } from "../models/User.js";
+import { Team } from "../models/Team.js";
+import mongoose from "mongoose";
 
 const svc = new ReportService();
 
@@ -295,10 +297,12 @@ const ALL_LEAD_STATUSES = [
 ] as const;
 
 /**
- * GET /api/reports/team-member-report
- * ?teamId=...&dateFrom=YYYY-MM-DD&dateTo=YYYY-MM-DD
+ * GET /api/reports/team-member-report?teamId=...
  *
- * Returns per-member lead status breakdown for a team.
+ * Returns per-member breakdown that adapts to the team's tag:
+ *  - "booking" tag → booking-specific metrics (this month + old conversions + conversion rate)
+ *  - "closing" tag → same but for "closed" status
+ *  - any other     → simple all-time per-status counts
  */
 export const getTeamMemberReport = async (
   req: AuthenticatedRequest,
@@ -308,87 +312,168 @@ export const getTeamMemberReport = async (
   try {
     const q      = req.query as Record<string, string>;
     const teamId = q.teamId?.trim();
-    if (!teamId) {
-      sendError(res, "teamId is required", 400);
-      return;
+    if (!teamId) { sendError(res, "teamId is required", 400); return; }
+
+    // Validate ObjectId format before constructing
+    if (!mongoose.Types.ObjectId.isValid(teamId)) {
+      sendError(res, "Invalid teamId", 400); return;
     }
+    const teamObjId = new mongoose.Types.ObjectId(teamId);
 
-    const { dateFrom, dateTo } = getDateParams(q);
+    // Determine report type from team tags
+    const team = await Team.findById(teamObjId).populate("tags", "name").lean();
+    if (!team) { sendError(res, "Team not found", 404); return; }
 
-    const dateFilter: Record<string, unknown> = {};
-    if (dateFrom) dateFilter.$gte = new Date(dateFrom);
-    if (dateTo)   dateFilter.$lte = new Date(dateTo + "T23:59:59.999Z");
+    const tagNames: string[] = ((team as any).tags ?? []).map(
+      (t: any) => (t.name ?? "").toLowerCase()
+    );
+    const isBooking = tagNames.some((n) => n === "booking");
+    const isClosing = tagNames.some((n) => n === "closing");
+    const reportType = isBooking ? "booking" : isClosing ? "closing" : "general";
+    const targetStatus = isBooking ? "booking" : isClosing ? "closed" : null;
 
-    const matchBase: Record<string, unknown> = { team: teamId };
-    if (dateFrom || dateTo) matchBase.createdAt = dateFilter;
+    // Current real-month boundaries (UTC)
+    const now        = new Date();
+    const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
 
-    // Aggregate: group by assignedTo + status → counts
-    const agg = await Lead.aggregate([
-      { $match: matchBase },
-      {
-        $group: {
-          _id:    { user: "$assignedTo", status: "$status" },
-          count:  { $sum: 1 },
-        },
-      },
-    ]);
-
-    // Get all members of this team (to include members with 0 leads)
-    const members = await User.find({ team: teamId })
+    // Members of this team
+    const members = await User.find({ team: teamObjId })
       .select("_id name email role")
       .populate("role", "roleName")
       .lean();
 
-    // Build member map
-    type StatusCounts = Record<string, number>;
-    const memberMap = new Map<string, { member: typeof members[0]; counts: StatusCounts; total: number }>();
+    // ── GENERAL REPORT ────────────────────────────────────────────────────────
+    if (reportType === "general") {
+      const agg = await Lead.aggregate([
+        { $match: { team: teamObjId } },
+        { $group: { _id: { user: "$assignedTo", status: "$status" }, count: { $sum: 1 } } },
+      ]);
 
-    for (const m of members) {
-      const id = (m._id as { toString(): string }).toString();
-      const counts: StatusCounts = {};
-      for (const s of ALL_LEAD_STATUSES) counts[s] = 0;
-      memberMap.set(id, { member: m, counts, total: 0 });
-    }
-
-    // Fill in lead counts (also catch leads assigned to users no longer in team)
-    const unknownUsers = new Map<string, StatusCounts & { total: number }>();
-    for (const row of agg) {
-      const userId  = row._id.user?.toString() ?? "unassigned";
-      const status  = row._id.status as string;
-      const count   = row.count as number;
-
-      if (memberMap.has(userId)) {
-        const entry = memberMap.get(userId)!;
-        entry.counts[status] = (entry.counts[status] ?? 0) + count;
-        entry.total += count;
-      } else {
-        if (!unknownUsers.has(userId)) {
-          const c: StatusCounts & { total: number } = { total: 0 };
-          for (const s of ALL_LEAD_STATUSES) c[s] = 0;
-          unknownUsers.set(userId, c);
-        }
-        const u = unknownUsers.get(userId)!;
-        u[status] = (u[status] ?? 0) + count;
-        u.total += count;
+      type SC = Record<string, number>;
+      const memberMap = new Map<string, { member: (typeof members)[0]; counts: SC; total: number }>();
+      for (const m of members) {
+        const id = (m._id as { toString(): string }).toString();
+        const counts: SC = {};
+        for (const s of ALL_LEAD_STATUSES) counts[s] = 0;
+        memberMap.set(id, { member: m, counts, total: 0 });
       }
+
+      const totals: SC = {};
+      for (const s of ALL_LEAD_STATUSES) totals[s] = 0;
+      let grandTotal = 0;
+
+      for (const row of agg) {
+        const uid = row._id.user?.toString() ?? "";
+        const entry = memberMap.get(uid);
+        if (entry) {
+          entry.counts[row._id.status] = (entry.counts[row._id.status] ?? 0) + row.count;
+          entry.total += row.count;
+          totals[row._id.status] = (totals[row._id.status] ?? 0) + row.count;
+          grandTotal += row.count;
+        }
+      }
+
+      sendSuccess(res, "Team member report fetched", {
+        reportType: "general",
+        rows: Array.from(memberMap.values()),
+        totals,
+        grandTotal,
+        statuses: ALL_LEAD_STATUSES,
+      });
+      return;
     }
 
-    // Totals row
-    const totals: StatusCounts = {};
-    for (const s of ALL_LEAD_STATUSES) totals[s] = 0;
-    let grandTotal = 0;
+    // ── BOOKING / CLOSING REPORT ──────────────────────────────────────────────
+    const [facet] = await Lead.aggregate([
+      { $match: { team: teamObjId } },
+      {
+        $facet: {
+          // All leads per member (all time)
+          total: [
+            { $group: { _id: "$assignedTo", count: { $sum: 1 } } },
+          ],
+          // Leads created this calendar month
+          thisMonth: [
+            { $match: { createdAt: { $gte: monthStart } } },
+            { $group: { _id: "$assignedTo", count: { $sum: 1 } } },
+          ],
+          // Old leads (created before this month) whose status became target this month
+          oldConversions: [
+            { $match: { status: targetStatus, createdAt: { $lt: monthStart }, updatedAt: { $gte: monthStart } } },
+            { $group: { _id: "$assignedTo", count: { $sum: 1 } } },
+          ],
+          // All target-status leads updated this month (new + old)
+          targetThisMonth: [
+            { $match: { status: targetStatus, updatedAt: { $gte: monthStart } } },
+            { $group: { _id: "$assignedTo", count: { $sum: 1 } } },
+          ],
+          // Other statuses all time (exclude target)
+          otherStatuses: [
+            { $match: { status: { $ne: targetStatus } } },
+            { $group: { _id: { user: "$assignedTo", status: "$status" }, count: { $sum: 1 } } },
+          ],
+        },
+      },
+    ]);
 
-    const rows = Array.from(memberMap.values()).map(({ member, counts, total }) => {
-      for (const s of ALL_LEAD_STATUSES) totals[s] = (totals[s] ?? 0) + (counts[s] ?? 0);
-      grandTotal += total;
-      return { member, counts, total };
+    function toMap(arr: { _id: unknown; count: number }[]) {
+      const m = new Map<string, number>();
+      for (const r of arr) m.set(String(r._id ?? ""), r.count);
+      return m;
+    }
+
+    const totalMap       = toMap(facet.total);
+    const thisMonthMap   = toMap(facet.thisMonth);
+    const oldConvMap     = toMap(facet.oldConversions);
+    const targetMonthMap = toMap(facet.targetThisMonth);
+
+    // Other-status counts per member
+    const otherMap = new Map<string, Record<string, number>>();
+    for (const r of (facet.otherStatuses as { _id: { user: unknown; status: string }; count: number }[])) {
+      const uid = String(r._id.user ?? "");
+      if (!otherMap.has(uid)) otherMap.set(uid, {});
+      otherMap.get(uid)![r._id.status] = r.count;
+    }
+
+    // Totals accumulators
+    const totals = {
+      total: 0, thisMonth: 0, oldConversions: 0,
+      targetThisMonth: 0, conversionRate: 0,
+      otherStatuses: {} as Record<string, number>,
+    };
+
+    const rows = members.map((m) => {
+      const id             = (m._id as { toString(): string }).toString();
+      const total          = totalMap.get(id)       ?? 0;
+      const thisMonth      = thisMonthMap.get(id)   ?? 0;
+      const oldConversions = oldConvMap.get(id)     ?? 0;
+      const targetThisMonth= targetMonthMap.get(id) ?? 0;
+      const otherCounts    = otherMap.get(id)       ?? {};
+      const conversionRate = thisMonth > 0
+        ? Math.round((targetThisMonth / thisMonth) * 1000) / 10
+        : 0;
+
+      totals.total           += total;
+      totals.thisMonth       += thisMonth;
+      totals.oldConversions  += oldConversions;
+      totals.targetThisMonth += targetThisMonth;
+      for (const [s, c] of Object.entries(otherCounts)) {
+        totals.otherStatuses[s] = (totals.otherStatuses[s] ?? 0) + c;
+      }
+
+      return { member: m, total, thisMonth, oldConversions, targetThisMonth, conversionRate, otherCounts };
     });
 
+    totals.conversionRate = totals.thisMonth > 0
+      ? Math.round((totals.targetThisMonth / totals.thisMonth) * 1000) / 10
+      : 0;
+
     sendSuccess(res, "Team member report fetched", {
+      reportType,
+      targetStatus,
       rows,
       totals,
-      grandTotal,
-      statuses: ALL_LEAD_STATUSES,
+      monthStart: monthStart.toISOString(),
     });
   } catch (err) {
     next(err);
