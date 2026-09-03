@@ -143,6 +143,8 @@ const bookingDetailsSchema = new Schema<IBookingDetails>(
     clientName:  { type: String, required: true, trim: true },
     clientEmail: { type: String, trim: true, lowercase: true },
     contactNo:   { type: String, required: true, trim: true },
+    amount:      { type: Number, min: 0 },
+    bookingDate: { type: Date },
     bookedAt:    { type: Date, default: Date.now },
     bookedBy:    { type: Schema.Types.ObjectId, ref: "User", required: true },
   },

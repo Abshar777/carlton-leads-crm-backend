@@ -55,6 +55,8 @@ const bookingDetailsSchema = z.object({
   clientName:  z.string().min(1),
   clientEmail: z.string().optional(),
   contactNo:   z.string().min(1),
+  amount:      z.number().min(0).optional(),
+  bookingDate: z.string().optional(),
 });
 
 const updateStatusSchema = z.object({

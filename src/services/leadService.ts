@@ -512,6 +512,7 @@ export class LeadService {
       batch: string; time: string; mode: "online" | "offline";
       staffName: string; whatsappNo: string; clientName: string;
       clientEmail?: string; contactNo: string;
+      amount?: number; bookingDate?: string;
     },
     reminderAt?: string,
   ) {
@@ -523,11 +524,27 @@ export class LeadService {
     lead.status = status;
 
     if (status === "booking" && bookingDetails) {
+      const parsedBookingDate = bookingDetails.bookingDate
+        ? new Date(bookingDetails.bookingDate)
+        : undefined;
+
       (lead as never as { bookingDetails: unknown }).bookingDetails = {
         ...bookingDetails,
+        bookingDate: parsedBookingDate && !isNaN(parsedBookingDate.getTime()) ? parsedBookingDate : undefined,
         bookedAt: new Date(),
         bookedBy: performedById,
       };
+
+      // Auto-add a payment entry for the booking amount
+      if (bookingDetails.amount != null && bookingDetails.amount > 0) {
+        lead.payments.push({
+          amount: bookingDetails.amount,
+          note: "Booking Amount",
+          paidAt: parsedBookingDate && !isNaN(parsedBookingDate.getTime())
+            ? parsedBookingDate
+            : new Date(),
+        } as never);
+      }
 
       if (reminderAt) {
         const reminderDate = new Date(reminderAt);

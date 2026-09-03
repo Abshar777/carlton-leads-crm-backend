@@ -236,6 +236,8 @@ export interface IBookingDetails {
   clientName: string;
   clientEmail?: string;
   contactNo: string;
+  amount?: number;
+  bookingDate?: Date;
   bookedAt: Date;
   bookedBy: Types.ObjectId | IUser;
 }

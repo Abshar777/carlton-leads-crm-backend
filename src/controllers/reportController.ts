@@ -6,6 +6,7 @@ import { Lead } from "../models/Lead.js";
 import { User } from "../models/User.js";
 import { Team } from "../models/Team.js";
 import mongoose from "mongoose";
+import * as XLSX from "xlsx";
 
 const svc = new ReportService();
 
@@ -264,7 +265,7 @@ function buildStatusReport(status: string, defaultDateField: string) {
       const [data, total] = await Promise.all([
         Lead.find(match)
           .populate("assignedTo", "name email")
-          .populate("team",       "name")
+          .populate({ path: "team", select: "name leaders", populate: { path: "leaders", select: "name" } })
           .populate("course",     "name amount")
           .sort(sortSpec)
           .skip(skip)
@@ -290,6 +291,107 @@ function buildStatusReport(status: string, defaultDateField: string) {
 
 export const getBookingsReport = buildStatusReport("booking", "bookedAt");
 export const getClosingsReport = buildStatusReport("closed",  "updatedAt");
+
+/** GET /api/reports/bookings/export — full dataset as Excel (no pagination) */
+export const exportBookingsExcel = async (
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<void> => {
+  try {
+    const q          = req.query as Record<string, string>;
+    const search     = q.search?.trim()     || undefined;
+    const teamId     = q.team?.trim()       || undefined;
+    const assignedTo = q.assignedTo?.trim() || undefined;
+    const dateField  = q.dateField || "bookedAt";
+    const sortBy     = q.sortBy   || "bookedAt";
+    const sortOrder  = q.sortOrder === "asc" ? 1 : -1;
+    const { dateFrom, dateTo } = getDateParams(q);
+
+    const match: Record<string, unknown> = { status: "booking", bookingDetails: { $exists: true } };
+    if (teamId)     match.team       = teamId;
+    if (assignedTo) match.assignedTo = assignedTo;
+
+    if (dateFrom || dateTo) {
+      const dateFilter: Record<string, unknown> = {};
+      if (dateFrom) dateFilter.$gte = new Date(dateFrom);
+      if (dateTo)   dateFilter.$lte = new Date(dateTo + "T23:59:59.999Z");
+      const fieldMap: Record<string, string> = {
+        bookedAt:  "bookingDetails.bookedAt",
+        createdAt: "createdAt",
+        updatedAt: "updatedAt",
+      };
+      match[fieldMap[dateField] ?? dateField] = dateFilter;
+    }
+
+    if (search) {
+      match.$or = [
+        { name:  { $regex: search, $options: "i" } },
+        { phone: { $regex: search, $options: "i" } },
+        { "bookingDetails.clientName":  { $regex: search, $options: "i" } },
+        { "bookingDetails.staffName":   { $regex: search, $options: "i" } },
+        { "bookingDetails.contactNo":   { $regex: search, $options: "i" } },
+        { "bookingDetails.clientEmail": { $regex: search, $options: "i" } },
+      ];
+    }
+
+    const sortFieldMap: Record<string, string> = {
+      bookedAt:  "bookingDetails.bookedAt",
+      createdAt: "createdAt",
+      updatedAt: "updatedAt",
+    };
+    const sortSpec: Record<string, 1 | -1> = { [sortFieldMap[sortBy] ?? "bookingDetails.bookedAt"]: sortOrder };
+
+    const leads = await Lead.find(match)
+      .populate("assignedTo", "name")
+      .populate({ path: "team", select: "name leaders", populate: { path: "leaders", select: "name" } })
+      .sort(sortSpec)
+      .lean();
+
+    // Build Excel rows
+    const rows = leads.map((lead, idx) => {
+      const bd   = lead.bookingDetails as Record<string, unknown> | undefined;
+      const team = lead.team as { name?: string; leaders?: { name?: string }[] } | null;
+      const leaderName = team?.leaders?.length
+        ? (team.leaders[0] as { name?: string }).name ?? "—"
+        : "—";
+
+      const bookingDate = bd?.bookingDate
+        ? new Date(bd.bookingDate as string).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })
+        : "—";
+
+      return {
+        "Row No":                idx + 1,
+        "Team Leader Name":      leaderName,
+        "Staff Name":            (bd?.staffName as string) || "—",
+        "Client Name":           (bd?.clientName as string) || (lead.name as string) || "—",
+        "Client Contact Number": (bd?.contactNo as string) || (lead.phone as string) || "—",
+        "Email":                 (bd?.clientEmail as string) || (lead.email as string) || "—",
+        "Booking Date":          bookingDate,
+        "Booking Amount":        bd?.amount != null ? bd.amount : "—",
+      };
+    });
+
+    const ws = XLSX.utils.json_to_sheet(rows);
+    // Auto column widths
+    ws["!cols"] = [
+      { wch: 8 }, { wch: 22 }, { wch: 20 }, { wch: 24 },
+      { wch: 20 }, { wch: 28 }, { wch: 16 }, { wch: 16 },
+    ];
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Bookings");
+
+    const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
+    const filename = `bookings-export-${new Date().toISOString().slice(0, 10)}.xlsx`;
+
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    res.send(buf);
+  } catch (err) {
+    next(err);
+  }
+};
 
 const ALL_LEAD_STATUSES = [
   "new","assigned","followup","interested","cnc","booking",

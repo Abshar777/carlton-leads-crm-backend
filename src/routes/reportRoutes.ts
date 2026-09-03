@@ -15,6 +15,7 @@ import {
   getBookingsReport,
   getClosingsReport,
   getTeamMemberReport,
+  exportBookingsExcel,
 } from "../controllers/reportController.js";
 import { exportExcel, exportPdf } from "../controllers/exportController.js";
 
@@ -39,7 +40,8 @@ router.get("/revenue/overview",  getRevenueOverview);
 router.get("/revenue/timeline",  getRevenueTimeline);
 router.get("/revenue/teams",     getRevenueTeams);
 
-// Bookings & Closings reports
+// Bookings & Closings reports — static paths before parameterized
+router.get("/bookings/export", exportBookingsExcel);
 router.get("/bookings", getBookingsReport);
 router.get("/closings", getClosingsReport);
 
