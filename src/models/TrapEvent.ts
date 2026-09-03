@@ -4,7 +4,6 @@ export type TrapAction =
   | "download_leads"
   | "copy_phone"
   | "print_attempt"
-  | "screenshot_attempt"
   | "whatsapp_share";
 
 export interface ITrapEvent {
@@ -23,7 +22,7 @@ export interface ITrapEvent {
 const trapEventSchema = new Schema<ITrapEvent>(
   {
     user:        { type: Schema.Types.ObjectId, ref: "User", required: true },
-    action:      { type: String, enum: ["download_leads", "copy_phone", "print_attempt", "screenshot_attempt", "whatsapp_share"], required: true },
+    action:      { type: String, enum: ["download_leads", "copy_phone", "print_attempt", "whatsapp_share"], required: true },
     leadId:      { type: Schema.Types.ObjectId, ref: "Lead" },
     leadName:    { type: String },
     phoneNumber: { type: String },

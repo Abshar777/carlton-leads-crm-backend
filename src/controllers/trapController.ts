@@ -6,7 +6,7 @@ import { sendSuccess, sendError } from "../utils/response.js";
 import type { TrapAction } from "../models/TrapEvent.js";
 
 const logSchema = z.object({
-  action:      z.enum(["download_leads", "copy_phone", "print_attempt", "screenshot_attempt", "whatsapp_share"]),
+  action:      z.enum(["download_leads", "copy_phone", "print_attempt", "whatsapp_share"]),
   leadId:      z.string().optional(),
   leadName:    z.string().optional(),
   phoneNumber: z.string().optional(),

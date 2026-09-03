@@ -5,6 +5,13 @@ import { verifyAccessToken } from "./utils/jwt.js";
 
 let io: Server;
 
+// userId → set of socketIds (multiple tabs/devices per user)
+const onlineUsers = new Map<string, Set<string>>();
+
+export function getOnlineUserIds(): string[] {
+  return Array.from(onlineUsers.keys());
+}
+
 // ─── Init ─────────────────────────────────────────────────────────────────────
 
 export function initSocket(httpServer: HttpServer): Server {
@@ -37,10 +44,29 @@ export function initSocket(httpServer: HttpServer): Server {
     if (userId) {
       socket.join(`user:${userId}`);
       console.log(`🟢 Socket connected: userId=${userId} socketId=${socket.id}`);
+
+      // Track online presence
+      if (!onlineUsers.has(userId)) {
+        onlineUsers.set(userId, new Set());
+        // First connection for this user — broadcast online
+        io.emit("user:online", { userId });
+      }
+      onlineUsers.get(userId)!.add(socket.id);
     }
 
     socket.on("disconnect", () => {
       console.log(`🔴 Socket disconnected: userId=${userId} socketId=${socket.id}`);
+      if (userId) {
+        const sockets = onlineUsers.get(userId);
+        if (sockets) {
+          sockets.delete(socket.id);
+          if (sockets.size === 0) {
+            onlineUsers.delete(userId);
+            // Last connection closed — broadcast offline
+            io.emit("user:offline", { userId });
+          }
+        }
+      }
     });
 
     // Client joins a specific team room
