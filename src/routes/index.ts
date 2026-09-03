@@ -14,6 +14,7 @@ import backupRoutes    from "./backupRoutes.js";
 import whatsappRoutes from "./whatsappRoutes.js";
 import tagRoutes from "./tagRoutes.js";
 import appSettingsRoutes from "./appSettingsRoutes.js";
+import trapRoutes from "./trapRoutes.js";
 
 const router = Router();
 
@@ -32,6 +33,7 @@ router.use("/backup",    backupRoutes);
 router.use("/whatsapp", whatsappRoutes);
 router.use("/tags",    tagRoutes);
 router.use("/settings/app", appSettingsRoutes);
+router.use("/traps",       trapRoutes);
 
 // Health check
 router.get("/health", (_req, res) => {
