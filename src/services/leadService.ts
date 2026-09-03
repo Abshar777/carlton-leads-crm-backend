@@ -540,6 +540,7 @@ export class LeadService {
         lead.payments.push({
           amount: bookingDetails.amount,
           note: "Booking Amount",
+          addedBy: new Types.ObjectId(performedById),
           paidAt: parsedBookingDate && !isNaN(parsedBookingDate.getTime())
             ? parsedBookingDate
             : new Date(),
