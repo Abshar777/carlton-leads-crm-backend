@@ -122,11 +122,44 @@ async function emitActivity(
   });
 }
 
+/**
+ * Tags whose teams are owned by the workflow. Leads reach these teams only through
+ * workflow automation (booking -> Closing, closed -> Redep, new -> Dummy) and must
+ * never be handed out by the generic team splitter.
+ */
+const WORKFLOW_RESERVED_TAGS = ["Closing", "Dummy", "Redep"] as const;
+
 /** Find the first active team whose tag matches the given name (case-insensitive). */
 async function findTeamByTagName(tagName: string): Promise<{ _id: Types.ObjectId } | null> {
   const tag = await Tag.findOne({ name: new RegExp(`^${tagName}$`, "i") }).select("_id").lean();
   if (!tag) return null;
-  return Team.findOne({ tags: tag._id, status: "active" }).select("_id").lean();
+
+  const matches = await Team.find({ tags: tag._id, status: "active" }).select("_id name").lean();
+  if (matches.length === 0) return null;
+
+  if (matches.length > 1) {
+    console.warn(
+      `[workflow] Tag "${tagName}" is on ${matches.length} active teams ` +
+      `(${matches.map((t) => t.name).join(", ")}). Routing to "${matches[0].name}". ` +
+      `Remove the duplicate tag so workflow routing is deterministic.`,
+    );
+  }
+  return matches[0];
+}
+
+/** Every active team id reserved by the workflow (Closing / Dummy / Redep). */
+async function getWorkflowReservedTeamIds(): Promise<string[]> {
+  const tags = await Tag.find({
+    name: { $in: WORKFLOW_RESERVED_TAGS.map((n) => new RegExp(`^${n}$`, "i")) },
+  }).select("_id").lean();
+  if (tags.length === 0) return [];
+
+  const teams = await Team.find({
+    tags: { $in: tags.map((t) => t._id) },
+    status: "active",
+  }).select("_id").lean();
+
+  return teams.map((t) => t._id.toString());
 }
 
 /** Find the Dummy Team (the entry-point team that collects all new leads). */
@@ -964,16 +997,39 @@ export class LeadService {
     const leadsToAssign = await Lead.find(query);
     if (leadsToAssign.length === 0) return { assigned: 0, results: [] };
 
-    // If specific team IDs supplied, restrict to those teams only
-    const teamFilter =
-      teamIds && teamIds.length > 0
-        ? { status: "active", _id: { $in: teamIds } }
-        : { status: "active" };
+    // When the workflow is on, teams tagged Closing / Dummy / Redep are workflow-managed
+    // destinations. Leads arrive there through automation only — never via this splitter.
+    // Without this guard the balancer sees Closing as the emptiest team (it only ever
+    // receives booked leads) and preferentially fills it with fresh leads.
+    const assignSettings = await getOrCreateSettings();
+    const reservedTeamIds = assignSettings.workflowEnabled
+      ? await getWorkflowReservedTeamIds()
+      : [];
+
+    // Strip reserved teams from an explicit selection too — never trust the caller here
+    const hadExplicitTeams = !!(teamIds && teamIds.length > 0);
+    const requestedTeamIds = hadExplicitTeams
+      ? teamIds!.filter((id) => !reservedTeamIds.includes(id))
+      : null;
+
+    // Caller asked only for reserved teams → nothing legitimate left to assign to
+    if (hadExplicitTeams && requestedTeamIds!.length === 0) {
+      return { assigned: 0, results: [] };
+    }
+
+    const teamFilter: Record<string, unknown> = { status: "active" };
+    if (requestedTeamIds) {
+      teamFilter._id = { $in: requestedTeamIds };
+    } else if (reservedTeamIds.length > 0) {
+      teamFilter._id = { $nin: reservedTeamIds };
+    }
 
     const activeTeams = await Team.find(teamFilter);
     if (activeTeams.length === 0) {
-      // When caller specified specific teams but none matched / inactive, skip silently
-      if (teamIds && teamIds.length > 0) return { assigned: 0, results: [] };
+      // Explicit selection matched nothing, or every active team is workflow-reserved
+      if (hadExplicitTeams || reservedTeamIds.length > 0) {
+        return { assigned: 0, results: [] };
+      }
       throw Object.assign(
         new Error("No active teams found for assignment"),
         { statusCode: 404 },
