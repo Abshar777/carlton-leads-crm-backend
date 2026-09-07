@@ -29,6 +29,7 @@ import { User }               from "../models/User.js";
 import { WhatsAppMessage, type IWhatsAppMessage } from "../models/WhatsAppMessage.js";
 import { WhatsAppSettings }   from "../models/WhatsAppSettings.js";
 import { emitToUser }         from "../socket.js";
+import { resolveNewLeadTeam } from "./leadService.js";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -193,12 +194,16 @@ async function handleInbound(
   if (!lead) {
     if (settings?.autoCreateLeads) {
       // Auto-create lead mode
+      // Workflow ON -> Dummy Team (entry point); OFF -> creator's own team, else none.
+      const workflowTeamId = await resolveNewLeadTeam({ creatorId: userId });
+
       const newLead = await Lead.create({
         name:     senderName || phone,
         phone,
         source:   "WhatsApp",
         status:   "new",
         reporter: userId,
+        ...(workflowTeamId ? { team: workflowTeamId } : {}),
       });
       await WhatsAppMessage.updateOne({ _id: saved._id }, { $set: { lead: newLead._id } });
 

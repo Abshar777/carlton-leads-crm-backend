@@ -116,6 +116,16 @@ This file documents every service in `backend/src/services/`. Read this before w
 - Counts `result.length` vs `docs.length` for failed count
 - Returns `{ created: result.length, failed: docs.length - result.length, errors: [...] }`
 
+#### `resolveNewLeadTeam({ preferredTeamId?, creatorId? })`
+- **Exported module-level function** (not a class method) — import by name
+- Single source of truth for which team a brand-new lead lands in
+- Workflow ON  -> the Dummy-tagged active team (workflow entry point); warns if none tagged
+- Workflow OFF -> `preferredTeamId`, else the creator's own active team, else `null`
+- **Called by**: `createLead`, `bulkCreateLeads`, `sheetsController` (both paths),
+  `whatsappController.createLeadFromChat`, `whatsappService` (auto-create on inbound)
+- Added to stop integration paths creating teamless leads once `autoAssignLeads` was
+  barred from workflow-reserved teams — see `mistakes.md`
+
 #### `autoAssignLeads(leadIds?, teamIds?, memberOverrides?)`
 - Signature: `autoAssignLeads(leadIds?: string[], teamIds?: string[], memberOverrides?: Record<string, string[]>)`
 - Gets unassigned leads (optionally filtered by `leadIds` or `teamIds`)

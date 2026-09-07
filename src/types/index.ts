@@ -290,6 +290,10 @@ export interface LeadFilters {
   tags?: string;
   /** Filter leads whose previousTeam matches this team ID (transferred-out leads) */
   previousTeam?: string;
+  /** "true" -> only leads with no team assigned */
+  noTeam?: string;
+  /** "true" -> only leads with no member assigned (may still belong to a team) */
+  noAssignee?: string;
   page?: string;
   limit?: string;
   sortBy?: string;

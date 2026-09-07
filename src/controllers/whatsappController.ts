@@ -14,6 +14,7 @@ import {
   sendMedia,
   getStatus,
 } from "../services/whatsappService.js";
+import { resolveNewLeadTeam } from "../services/leadService.js";
 
 // ── Status & connection ───────────────────────────────────────────────────────
 
@@ -287,12 +288,16 @@ export const createLeadFromChat = async (
       displayName = latest?.senderName || phone;
     }
 
+    // Workflow ON -> Dummy Team (entry point); OFF -> creator's own team, else none.
+    const workflowTeamId = await resolveNewLeadTeam({ creatorId: req.user!.userId });
+
     const lead = await Lead.create({
       name:     displayName,
       phone,
       source:   "WhatsApp",
       status,
       reporter: req.user!.userId,
+      ...(workflowTeamId ? { team: workflowTeamId } : {}),
       ...(email ? { email } : {}),
     });
 

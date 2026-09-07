@@ -2,7 +2,7 @@ import type { Request, Response, NextFunction } from "express";
 import { z } from "zod";
 import { Lead } from "../models/Lead.js";
 import { User } from "../models/User.js";
-import { LeadService } from "../services/leadService.js";
+import { LeadService, resolveNewLeadTeam } from "../services/leadService.js";
 import { sendSuccess, sendError } from "../utils/response.js";
 
 const leadService = new LeadService();
@@ -141,9 +141,16 @@ export const syncSheetLead = async (
     // ── Build note from extra fields ───────────────────────────────────────
     const noteContent = buildNote(row);
 
+    // ── Team routing ───────────────────────────────────────────────────────
+    // Same rule every creation path uses: workflow ON -> Dummy Team (entry point).
+    // Without this the lead is created teamless and relies on the balancer, which is
+    // barred from workflow-reserved teams and would leave it permanently unassigned.
+    const workflowTeamId = await resolveNewLeadTeam();
+
     // ── Create lead ────────────────────────────────────────────────────────
     const lead = await Lead.create({
       name:     row.full_name?.trim()||"no name",
+      ...(workflowTeamId ? { team: workflowTeamId } : {}),
       phone,
       email,
       source:   mapPlatformToSource(row.platform),
@@ -170,14 +177,18 @@ export const syncSheetLead = async (
     });
 
     // ── Auto-assign to least-loaded active team ────────────────────────────
-    let assignedTeam: string | null = null;
-    try {
-      const assignment = await leadService.autoAssignLeads([lead._id.toString()]);
-      if (assignment.assigned > 0 && assignment.results[0]) {
-        assignedTeam = assignment.results[0].assignedTo;
+    // Workflow ON: already routed to the Dummy Team above; the workflow drives it from
+    // there, so the balancer must not touch it. Workflow OFF: balance as before.
+    let assignedTeam: string | null = workflowTeamId;
+    if (!workflowTeamId) {
+      try {
+        const assignment = await leadService.autoAssignLeads([lead._id.toString()]);
+        if (assignment.assigned > 0 && assignment.results[0]) {
+          assignedTeam = assignment.results[0].assignedTo;
+        }
+      } catch (err) {
+        console.error(`[sheets] Auto-assign failed for lead ${lead._id.toString()} (${phone}):`, err);
       }
-    } catch {
-      // No active teams yet — lead stays unassigned, not a fatal error
     }
 
     sendSuccess(
@@ -227,6 +238,9 @@ export const syncSheetLeadsBatch = async (
     }
     const reporterId = superAdmin._id.toString();
 
+    // Resolved once for the whole batch — workflow ON -> Dummy Team (entry point)
+    const workflowTeamId = await resolveNewLeadTeam();
+
     const results: Array<{
       index:     number;
       status:    "created" | "duplicate" | "invalid";
@@ -264,6 +278,7 @@ export const syncSheetLeadsBatch = async (
         name:     row.full_name.trim(),
         phone,
         email,
+        ...(workflowTeamId ? { team: workflowTeamId } : {}),
         source:   mapPlatformToSource(row.platform),
         platform: row.platform?.trim() || undefined,
         campaign: row.campaign_name?.trim() || undefined,
@@ -301,11 +316,16 @@ export const syncSheetLeadsBatch = async (
       .map((r) => r.leadId as string);
 
     if (createdIds.length > 0) {
-      try {
-        const assignment = await leadService.autoAssignLeads(createdIds);
-        assigned = assignment.assigned;
-      } catch {
-        // No active teams — leads stay unassigned, not a fatal error
+      if (workflowTeamId) {
+        // Already routed to the Dummy Team at creation — the workflow takes it from here.
+        assigned = createdIds.length;
+      } else {
+        try {
+          const assignment = await leadService.autoAssignLeads(createdIds);
+          assigned = assignment.assigned;
+        } catch (err) {
+          console.error(`[sheets] Batch auto-assign failed for ${createdIds.length} lead(s):`, err);
+        }
       }
     }
 

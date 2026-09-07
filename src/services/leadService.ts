@@ -124,10 +124,10 @@ async function emitActivity(
 
 /**
  * Tags whose teams are owned by the workflow. Leads reach these teams only through
- * workflow automation (booking -> Closing, closed -> Redep, new -> Dummy) and must
+ * workflow automation (booking -> Closing, closed -> Redeposit, new -> Dummy) and must
  * never be handed out by the generic team splitter.
  */
-const WORKFLOW_RESERVED_TAGS = ["Closing", "Dummy", "Redep"] as const;
+const WORKFLOW_RESERVED_TAGS = ["Closing", "Dummy", "Redeposit"] as const;
 
 /** Find the first active team whose tag matches the given name (case-insensitive). */
 async function findTeamByTagName(tagName: string): Promise<{ _id: Types.ObjectId } | null> {
@@ -147,7 +147,7 @@ async function findTeamByTagName(tagName: string): Promise<{ _id: Types.ObjectId
   return matches[0];
 }
 
-/** Every active team id reserved by the workflow (Closing / Dummy / Redep). */
+/** Every active team id reserved by the workflow (Closing / Dummy / Redeposit). */
 async function getWorkflowReservedTeamIds(): Promise<string[]> {
   const tags = await Tag.find({
     name: { $in: WORKFLOW_RESERVED_TAGS.map((n) => new RegExp(`^${n}$`, "i")) },
@@ -165,6 +165,44 @@ async function getWorkflowReservedTeamIds(): Promise<string[]> {
 /** Find the Dummy Team (the entry-point team that collects all new leads). */
 async function findDummyTeam(): Promise<{ _id: Types.ObjectId } | null> {
   return findTeamByTagName("Dummy");
+}
+
+/**
+ * Resolve the team a brand-new lead should land in.
+ *
+ * Workflow ON  -> always the Dummy team, the workflow entry point. Every creation path
+ *                 (form, bulk upload, Google Sheets, WhatsApp) must agree on this, or
+ *                 integration leads end up with no team once the splitter is barred
+ *                 from handing out workflow-reserved teams.
+ * Workflow OFF -> the caller's preferred team, else the creator's own active team, else null.
+ */
+export async function resolveNewLeadTeam(opts: {
+  preferredTeamId?: string | null;
+  creatorId?: string | null;
+} = {}): Promise<string | null> {
+  const settings = await getOrCreateSettings();
+
+  if (settings.workflowEnabled) {
+    const dummyTeam = await findDummyTeam();
+    if (dummyTeam) return dummyTeam._id.toString();
+    console.warn(
+      '[workflow] Workflow is enabled but no active team carries the "Dummy" tag. ' +
+      "New leads cannot be routed to the workflow entry point.",
+    );
+    return opts.preferredTeamId ?? null;
+  }
+
+  if (opts.preferredTeamId) return opts.preferredTeamId;
+
+  if (opts.creatorId) {
+    const creatorTeam = await Team.findOne({
+      $or: [{ members: opts.creatorId }, { leaders: opts.creatorId }],
+      status: "active",
+    }).select("_id").lean();
+    if (creatorTeam) return creatorTeam._id.toString();
+  }
+
+  return null;
 }
 
 // ── Notify team leaders about a lead event ────────────────────────────────────
@@ -293,21 +331,11 @@ export class LeadService {
       );
     }
 
-    // When workflow is enabled, always route new leads to the Dummy Team regardless of
-    // what team (if any) was selected. The Dummy Team is the entry point of the workflow.
-    let resolvedTeamId = data.team || null;
-    const workflowSettings = await getOrCreateSettings();
-    if (workflowSettings.workflowEnabled) {
-      const dummyTeam = await findDummyTeam();
-      if (dummyTeam) resolvedTeamId = dummyTeam._id.toString();
-    } else if (!resolvedTeamId) {
-      // Workflow off — fall back to auto-detect creator's team
-      const creatorTeam = await Team.findOne({
-        $or: [{ members: reporterId }, { leaders: reporterId }],
-        status: "active",
-      }).select("_id").lean();
-      if (creatorTeam) resolvedTeamId = creatorTeam._id.toString();
-    }
+    // Workflow ON -> Dummy Team (entry point). OFF -> selected team, else creator's team.
+    const resolvedTeamId = await resolveNewLeadTeam({
+      preferredTeamId: data.team || null,
+      creatorId: reporterId,
+    });
 
     const lead = await Lead.create({
       ...data,
@@ -362,11 +390,26 @@ export class LeadService {
       }
     }
    
+    // Remember whether role scoping pinned assignedTo — an unassigned filter must
+    // never be allowed to widen a restricted user's visibility.
+    const roleScopedAssignee = query.assignedTo;
+
     if (filters.status)     query.status     = filters.status;
     if (filters.assignedTo)   query.assignedTo   = filters.assignedTo;
     if (filters.team)         query.team         = filters.team;
     if (filters.reporter)     query.reporter     = filters.reporter;
     if (filters.previousTeam) query.previousTeam = filters.previousTeam;
+
+    // Unassigned filters — a lead can have no team, or a team but no owner.
+    // `{ $in: [null] }` matches both an explicit null and a field that was never set.
+    if (filters.noTeam === "true") query.team = { $in: [null] };
+
+    if (filters.noAssignee === "true") {
+      // A member scoped to `assignedTo = self` cannot use this to reach leads that
+      // belong to nobody — their scope and "unassigned" can never overlap, so the
+      // correct result is an empty set, not a widened one.
+      query.assignedTo = roleScopedAssignee !== undefined ? { $in: [] } : { $in: [null] };
+    }
     if (filters.course)     query.course     = filters.course;
     if (filters.tags) {
       const tagIds = filters.tags.split(",").filter(Boolean);
@@ -636,7 +679,7 @@ export class LeadService {
 
       if (status === "closed") {
         // Grant Redeposit Team shared access
-        const redepTeam = await findTeamByTagName("Redep");
+        const redepTeam = await findTeamByTagName("Redeposit");
         if (redepTeam) {
           await Lead.updateOne(
             { _id: lead._id },
@@ -947,12 +990,7 @@ export class LeadService {
     }
 
     // When workflow is enabled, route all uploaded leads to the Dummy Team
-    const bulkSettings = await getOrCreateSettings();
-    let bulkTeamId: string | null = null;
-    if (bulkSettings.workflowEnabled) {
-      const dummyTeam = await findDummyTeam();
-      if (dummyTeam) bulkTeamId = dummyTeam._id.toString();
-    }
+    const bulkTeamId = await resolveNewLeadTeam();
 
     const leadsWithReporter = toInsert.map(({ _normalizedPhone: _, ...lead }) => {
       const email =
@@ -997,7 +1035,7 @@ export class LeadService {
     const leadsToAssign = await Lead.find(query);
     if (leadsToAssign.length === 0) return { assigned: 0, results: [] };
 
-    // When the workflow is on, teams tagged Closing / Dummy / Redep are workflow-managed
+    // When the workflow is on, teams tagged Closing / Dummy / Redeposit are workflow-managed
     // destinations. Leads arrive there through automation only — never via this splitter.
     // Without this guard the balancer sees Closing as the emptiest team (it only ever
     // receives booked leads) and preferentially fills it with fresh leads.

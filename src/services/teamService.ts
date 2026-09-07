@@ -36,10 +36,10 @@ export class TeamService {
     const tags = data.tags ? [...new Set(data.tags)] : [];
     if (tags.length > 1) throw Object.assign(new Error("A team can only have one tag"), { statusCode: 400 });
     if (tags.length === 1) {
-      // Only Closing and Redep tags are exclusive (one team only).
+      // Only Closing and Redeposit tags are exclusive (one team only).
       // Booking and Dummy tags can be shared across multiple teams.
       const tagDoc = await Tag.findById(tags[0]).select("name").lean();
-      const exclusive = tagDoc && /^(closing|redep)$/i.test(tagDoc.name);
+      const exclusive = tagDoc && /^(closing|redeposit)$/i.test(tagDoc.name);
       if (exclusive) {
         const taken = await Team.findOne({ tags: tags[0] }).select("name").lean();
         if (taken) throw Object.assign(new Error(`Tag is already assigned to team "${taken.name}"`), { statusCode: 409 });
@@ -155,7 +155,7 @@ export class TeamService {
       if (uniqueTags.length > 1) throw Object.assign(new Error("A team can only have one tag"), { statusCode: 400 });
       if (uniqueTags.length === 1) {
         const tagDoc = await Tag.findById(uniqueTags[0]).select("name").lean();
-        const exclusive = tagDoc && /^(closing|redep)$/i.test(tagDoc.name);
+        const exclusive = tagDoc && /^(closing|redeposit)$/i.test(tagDoc.name);
         if (exclusive) {
           const taken = await Team.findOne({ tags: uniqueTags[0], _id: { $ne: id } }).select("name").lean();
           if (taken) throw Object.assign(new Error(`Tag is already assigned to team "${taken.name}"`), { statusCode: 409 });

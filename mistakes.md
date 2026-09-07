@@ -270,3 +270,34 @@ if (err instanceof z.ZodError) {
 ```
 
 **Rule**: Always use `err.issues` (not `err.errors`) when handling `ZodError` in this project. The installed Zod is v4. Double-check every controller's catch block.
+
+---
+
+## Bug #8: Integration Leads Created With No Team After Workflow Guard
+
+**File/Location**: `src/controllers/sheetsController.ts` (both paths), `src/controllers/whatsappController.ts`, `src/services/whatsappService.ts`
+
+**Root Cause**: These paths call `Lead.create()` directly instead of going through
+`leadService.createLead()`, so they never applied the workflow rule that routes new leads
+to the Dummy Team. They relied entirely on `autoAssignLeads()` to pick a team. Once
+`autoAssignLeads()` was correctly barred from handing out workflow-reserved teams
+(Closing / Dummy / Redeposit), and those were the only active teams, zero candidates
+remained — so it returned `{ assigned: 0 }` and the lead kept no team.
+
+**Symptom**: Every lead imported from Google Sheets (Instagram/Facebook, reporter Super
+Admin) landed with `team: null`, status `new`, "Unassigned". Silent — both sheets paths
+wrapped the call in a bare `catch {}` with no logging, so nothing surfaced anywhere.
+
+**Fix**:
+1. Added exported `resolveNewLeadTeam({ preferredTeamId, creatorId })` in `leadService.ts`
+   as the single source of truth for new-lead team routing. `createLead` and
+   `bulkCreateLeads` now delegate to it, so every path agrees by construction.
+2. Sheets + WhatsApp paths resolve the team at creation. When the workflow assigns the
+   Dummy Team, the balancer is skipped entirely (the workflow drives the lead from there);
+   when workflow is off, the old balancer behaviour is preserved exactly.
+3. Replaced both bare `catch {}` blocks with `console.error` including lead id and phone.
+4. `resolveNewLeadTeam` warns when workflow is on but no active team carries the "Dummy" tag.
+
+**Rule**: Never call `Lead.create()` directly from a controller or integration. Route team
+selection through `resolveNewLeadTeam()` so workflow rules apply everywhere. Never swallow
+an assignment error with a bare `catch {}` — always log the lead id.
