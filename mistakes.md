@@ -301,3 +301,38 @@ wrapped the call in a bare `catch {}` with no logging, so nothing surfaced anywh
 **Rule**: Never call `Lead.create()` directly from a controller or integration. Route team
 selection through `resolveNewLeadTeam()` so workflow rules apply everywhere. Never swallow
 an assignment error with a bare `catch {}` — always log the lead id.
+
+---
+
+## Bug #9: Client Filter Could Overwrite Role-Scoped Visibility in getLeads()
+
+**File/Location**: `src/services/leadService.ts` → `getLeads()`
+
+**Root Cause**: Role scoping ran first and set `query.assignedTo = userId` for regular
+members / BDEs. The filter block then ran `query.assignedTo = filters.assignedTo`, which
+**replaced** that scope instead of narrowing it. The client-supplied query param won.
+
+**Symptom**: A regular member calling `GET /leads?assignedTo=<other-user-id>` saw another
+user's leads — a horizontal privilege escalation via a plain query string. Never surfaced
+in the UI (the picker only offers valid options to admins) but the endpoint accepted it.
+The same shape would have applied to a new `noAssignee` filter, exposing every unassigned
+lead in the org.
+
+**Fix**: Capture the role-scoped value **before** applying client filters:
+```ts
+const roleScopedAssignee = typeof query.assignedTo === "string" ? query.assignedTo : undefined;
+```
+Then a scoped user asking for someone else gets an empty set rather than a widened one:
+```ts
+query.assignedTo =
+  roleScopedAssignee !== undefined && filters.assignedTo !== roleScopedAssignee
+    ? { $in: [] }
+    : filters.assignedTo;
+```
+Team leaders are unaffected — their scope lives in `scopeOr`, which is `$and`-combined
+later, so `assignedTo`/`team` filters can only narrow within their team.
+
+**Rule**: Role scoping must be applied so that client filters can only **narrow** it, never
+replace it. When a filter conflicts with a user's scope, return an empty set (`{ $in: [] }`) —
+do not silently ignore the filter and do not widen access. Any new filter touching a
+scope-bearing field (`assignedTo`, `team`) must check the captured scope first.

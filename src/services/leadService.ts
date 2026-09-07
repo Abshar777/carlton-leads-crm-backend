@@ -390,12 +390,21 @@ export class LeadService {
       }
     }
    
-    // Remember whether role scoping pinned assignedTo — an unassigned filter must
-    // never be allowed to widen a restricted user's visibility.
-    const roleScopedAssignee = query.assignedTo;
+    // Role scoping may have pinned assignedTo to this user. No client-supplied filter
+    // is allowed to widen that — it may only narrow it further.
+    const roleScopedAssignee =
+      typeof query.assignedTo === "string" ? query.assignedTo : undefined;
 
     if (filters.status)     query.status     = filters.status;
-    if (filters.assignedTo)   query.assignedTo   = filters.assignedTo;
+
+    if (filters.assignedTo) {
+      // A member restricted to their own leads asking for someone else's must get an
+      // empty set, not that person's leads. Requesting their own id is a harmless no-op.
+      query.assignedTo =
+        roleScopedAssignee !== undefined && filters.assignedTo !== roleScopedAssignee
+          ? { $in: [] }
+          : filters.assignedTo;
+    }
     if (filters.team)         query.team         = filters.team;
     if (filters.reporter)     query.reporter     = filters.reporter;
     if (filters.previousTeam) query.previousTeam = filters.previousTeam;
