@@ -14,7 +14,8 @@
     "backup": "bun scripts/run-backup.ts",
     "recover": "bun scripts/recover.ts",
     "mcp": "bun mcp-server/index.ts",
-    "backfill:dummy": "bun scripts/backfill-unassigned-to-dummy.ts"
+    "backfill:dummy": "bun scripts/backfill-unassigned-to-dummy.ts",
+    "backfill:closing": "bun scripts/backfill-booking-to-closing.ts"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
