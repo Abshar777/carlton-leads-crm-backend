@@ -281,7 +281,7 @@ if (err instanceof z.ZodError) {
 `leadService.createLead()`, so they never applied the workflow rule that routes new leads
 to the Dummy Team. They relied entirely on `autoAssignLeads()` to pick a team. Once
 `autoAssignLeads()` was correctly barred from handing out workflow-reserved teams
-(Closing / Dummy / Redeposit), and those were the only active teams, zero candidates
+(Closing / Dummy / Redep), and those were the only active teams, zero candidates
 remained — so it returned `{ assigned: 0 }` and the lead kept no team.
 
 **Symptom**: Every lead imported from Google Sheets (Instagram/Facebook, reporter Super

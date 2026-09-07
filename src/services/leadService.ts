@@ -124,10 +124,10 @@ async function emitActivity(
 
 /**
  * Tags whose teams are owned by the workflow. Leads reach these teams only through
- * workflow automation (booking -> Closing, closed -> Redeposit, new -> Dummy) and must
+ * workflow automation (booking -> Closing, closed -> Redep, new -> Dummy) and must
  * never be handed out by the generic team splitter.
  */
-const WORKFLOW_RESERVED_TAGS = ["Closing", "Dummy", "Redeposit"] as const;
+const WORKFLOW_RESERVED_TAGS = ["Closing", "Dummy", "Redep"] as const;
 
 /** Find the first active team whose tag matches the given name (case-insensitive). */
 async function findTeamByTagName(tagName: string): Promise<{ _id: Types.ObjectId } | null> {
@@ -147,7 +147,7 @@ async function findTeamByTagName(tagName: string): Promise<{ _id: Types.ObjectId
   return matches[0];
 }
 
-/** Every active team id reserved by the workflow (Closing / Dummy / Redeposit). */
+/** Every active team id reserved by the workflow (Closing / Dummy / Redep). */
 async function getWorkflowReservedTeamIds(): Promise<string[]> {
   const tags = await Tag.find({
     name: { $in: WORKFLOW_RESERVED_TAGS.map((n) => new RegExp(`^${n}$`, "i")) },
@@ -688,7 +688,7 @@ export class LeadService {
 
       if (status === "closed") {
         // Grant Redeposit Team shared access
-        const redepTeam = await findTeamByTagName("Redeposit");
+        const redepTeam = await findTeamByTagName("Redep");
         if (redepTeam) {
           await Lead.updateOne(
             { _id: lead._id },
@@ -1044,7 +1044,7 @@ export class LeadService {
     const leadsToAssign = await Lead.find(query);
     if (leadsToAssign.length === 0) return { assigned: 0, results: [] };
 
-    // When the workflow is on, teams tagged Closing / Dummy / Redeposit are workflow-managed
+    // When the workflow is on, teams tagged Closing / Dummy / Redep are workflow-managed
     // destinations. Leads arrive there through automation only — never via this splitter.
     // Without this guard the balancer sees Closing as the emptiest team (it only ever
     // receives booked leads) and preferentially fills it with fresh leads.
