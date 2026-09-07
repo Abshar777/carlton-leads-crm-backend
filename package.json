@@ -13,7 +13,8 @@
     "test:verbose": "bun test tests/ --timeout 15000 --reporter=verbose",
     "backup": "bun scripts/run-backup.ts",
     "recover": "bun scripts/recover.ts",
-    "mcp": "bun mcp-server/index.ts"
+    "mcp": "bun mcp-server/index.ts",
+    "backfill:dummy": "bun scripts/backfill-unassigned-to-dummy.ts"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
