@@ -135,7 +135,22 @@ async function findTeamByTagName(tagName: string): Promise<{ _id: Types.ObjectId
   if (!tag) return null;
 
   const matches = await Team.find({ tags: tag._id, status: "active" }).select("_id name").lean();
-  if (matches.length === 0) return null;
+
+  if (matches.length === 0) {
+    // The tag exists but no ACTIVE team carries it. Deactivating a workflow team is the
+    // usual cause and is otherwise invisible — the caller's `if (team)` guard just skips.
+    const inactive = await Team.find({ tags: tag._id, status: { $ne: "active" } }).select("name status").lean();
+    console.warn(
+      inactive.length > 0
+        ? `[workflow] Tag "${tagName}" is only on INACTIVE team(s): ` +
+          `${inactive.map((t) => `${t.name} (${t.status})`).join(", ")}. ` +
+          `Workflow routing for "${tagName}" is disabled until one of them is reactivated ` +
+          `or the tag is moved to an active team.`
+        : `[workflow] Tag "${tagName}" exists but is not assigned to any team. ` +
+          `Workflow routing for "${tagName}" is disabled.`,
+    );
+    return null;
+  }
 
   if (matches.length > 1) {
     console.warn(
@@ -702,6 +717,12 @@ export class LeadService {
           );
           await lead.save();
           void emitActivity(lead as never);
+        } else {
+          console.warn(
+            `[workflow] Lead ${lead._id.toString()} moved to "booking" but no active ` +
+            `Closing team could be resolved — the transfer was skipped. ` +
+            `See the preceding [workflow] tag warning for the cause.`,
+          );
         }
       }
 
@@ -722,6 +743,12 @@ export class LeadService {
           );
           await lead.save();
           void emitActivity(lead as never);
+        } else {
+          console.warn(
+            `[workflow] Lead ${lead._id.toString()} moved to "closed" but no active ` +
+            `Redep team could be resolved — the share was skipped. ` +
+            `See the preceding [workflow] tag warning for the cause.`,
+          );
         }
       }
     })();
