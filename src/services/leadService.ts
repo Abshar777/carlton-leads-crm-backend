@@ -460,6 +460,25 @@ export class LeadService {
       }
     }
 
+    // ── Split-date range on assignedAt (IST-aware) ──────────────────────────────
+    // assignedAt is stamped by autoSplitLead() and every other assignment path, so
+    // it is the moment a lead was split out to a member. Same +05:30 handling as
+    // the createdAt range above, otherwise a day boundary lands 5.5 hrs off.
+    if (filters.splitFrom || filters.splitTo) {
+      const splitRange: Record<string, Date> = {};
+      if (filters.splitFrom) {
+        const from = new Date(filters.splitFrom + "T00:00:00.000+05:30");
+        if (!isNaN(from.getTime())) splitRange.$gte = from;
+      }
+      if (filters.splitTo) {
+        const to = new Date(filters.splitTo + "T23:59:59.999+05:30");
+        if (!isNaN(to.getTime())) splitRange.$lte = to;
+      }
+      if (Object.keys(splitRange).length > 0) {
+        query.assignedAt = splitRange;
+      }
+    }
+
     if (filters.search) {
       const regex = new RegExp(filters.search, "i");
       const searchOr = [{ name: regex }, { email: regex }, { phone: regex }];
