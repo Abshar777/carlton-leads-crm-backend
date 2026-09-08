@@ -290,6 +290,8 @@ export interface LeadFilters {
   tags?: string;
   /** Filter leads whose previousTeam matches this team ID (transferred-out leads) */
   previousTeam?: string;
+  /** "true" -> only leads that arrived from another team (previousTeam is set) */
+  transferredIn?: string;
   /** ISO date string – leads split (assigned to a member) on or after this date */
   splitFrom?: string;
   /** ISO date string – leads split on or before this date (inclusive, end of day) */

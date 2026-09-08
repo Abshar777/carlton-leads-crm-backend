@@ -248,10 +248,17 @@ async function autoSplitLead(
   leadId: string,
   performedById: string,
   overrideMemberIds?: string[],
-) {
+  /**
+   * Split even when the team has autoAssign switched off. Used by the workflow
+   * booking -> Closing transfer, where landing the lead on an owner is part of the
+   * business rule rather than an opt-in team preference.
+   */
+  force = false,
+): Promise<string | null> {
   try {
     const team = await Team.findById(teamId).populate("members", "_id").populate("leaders", "_id").lean();
-    if (!team || !team.settings?.autoAssign) return;
+    if (!team) return null;
+    if (!force && !team.settings?.autoAssign) return null;
 
     const allMemberIds = [
       ...team.leaders.map((u: { _id: { toString(): string } }) => u._id.toString()),
@@ -274,7 +281,7 @@ async function autoSplitLead(
     }
     const pool = (includedSet.length > 0 ? includedSet : allMemberIds).filter((id) => !inactiveSet.has(id));
 
-    if (pool.length === 0) return;
+    if (pool.length === 0) return null;
 
     let assigneeId: string;
 
@@ -294,7 +301,7 @@ async function autoSplitLead(
     }
 
     const user = await User.findById(assigneeId).select("_id name").lean();
-    if (!user) return;
+    if (!user) return null;
 
     await Lead.updateOne(
       { _id: leadId },
@@ -318,8 +325,10 @@ async function autoSplitLead(
 
     const splitLead = await Lead.findById(leadId).select("name").lean();
     void notifyLeadAssignment(assigneeId, leadId, splitLead?.name ?? "", emitToUser);
+    return user.name;
   } catch (err) {
     console.error("[autoSplitLead] error:", err);
+    return null;
   }
 }
 
@@ -423,6 +432,10 @@ export class LeadService {
     if (filters.team)         query.team         = filters.team;
     if (filters.reporter)     query.reporter     = filters.reporter;
     if (filters.previousTeam) query.previousTeam = filters.previousTeam;
+
+    // Transferred-in: the lead arrived from another team. Combine with `team` to get
+    // "leads transferred INTO this team", the mirror of the previousTeam filter above.
+    if (filters.transferredIn === "true") query.previousTeam = { $ne: null };
 
     // Unassigned filters — a lead can have no team, or a team but no owner.
     // `{ $in: [null] }` matches both an explicit null and a field that was never set.
@@ -717,6 +730,25 @@ export class LeadService {
           );
           await lead.save();
           void emitActivity(lead as never);
+
+          // Hand the lead to a Closing team member. autoSplitLead sets assignedTo,
+          // status "assigned" and assignedAt together, so the lead never ends up
+          // reading "assigned" with nobody on it. Forced, because landing an owner is
+          // part of this workflow rule rather than the team's autoAssign preference.
+          const assignee = await autoSplitLead(
+            closingTeam._id.toString(),
+            lead._id.toString(),
+            performedById,
+            undefined,
+            true,
+          );
+          if (!assignee) {
+            console.warn(
+              `[workflow] Lead ${lead._id.toString()} was transferred to the Closing Team ` +
+              `but could not be assigned to a member (no eligible active members?). ` +
+              `Status stays "booking" until someone picks it up.`,
+            );
+          }
         } else {
           console.warn(
             `[workflow] Lead ${lead._id.toString()} moved to "booking" but no active ` +

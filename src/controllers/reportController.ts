@@ -222,8 +222,12 @@ function buildStatusReport(status: string, defaultDateField: string) {
       const dateField  = q.dateField || defaultDateField;
       const { dateFrom, dateTo } = getDateParams(q);
 
-      const match: Record<string, unknown> = { status };
-      if (status === "booking") match.bookingDetails = { $exists: true };
+      // Bookings are identified by having bookingDetails, NOT by current status.
+      // The workflow moves a booked lead to the Closing team and flips it to
+      // "assigned", so keying off status would drop every transferred booking
+      // from this report. Other statuses still match on status as before.
+      const match: Record<string, unknown> =
+        status === "booking" ? { bookingDetails: { $exists: true } } : { status };
       if (teamId)     match.team       = teamId;
       if (assignedTo) match.assignedTo = assignedTo;
 
@@ -308,7 +312,10 @@ export const exportBookingsExcel = async (
     const sortOrder  = q.sortOrder === "asc" ? 1 : -1;
     const { dateFrom, dateTo } = getDateParams(q);
 
-    const match: Record<string, unknown> = { status: "booking", bookingDetails: { $exists: true } };
+    // Same rule as getBookingsReport: a booking is identified by bookingDetails, not
+    // by current status — transferred bookings are "assigned" once the workflow moves
+    // them to the Closing team. Keep these two matches in step.
+    const match: Record<string, unknown> = { bookingDetails: { $exists: true } };
     if (teamId)     match.team       = teamId;
     if (assignedTo) match.assignedTo = assignedTo;
 
