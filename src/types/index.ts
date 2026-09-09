@@ -273,6 +273,8 @@ export interface ILead extends Document {
 
 export interface LeadFilters {
   status?: LeadStatus;
+  /** Lead source, matched case-insensitively ("whatsapp" also matches "WhatsApp") */
+  source?: string;
   assignedTo?: string;
   team?: string;
   reporter?: string;

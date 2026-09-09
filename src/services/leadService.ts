@@ -380,6 +380,27 @@ export class LeadService {
     return buildPopulatedQuery(lead._id.toString());
   }
 
+  /**
+   * Distinct lead sources with counts, grouped case-insensitively so "whatsapp" and
+   * "WhatsApp" collapse into one option. Returns the most common original spelling
+   * as the label, and the lowercase key as the filter value.
+   */
+  async getLeadSources(): Promise<{ value: string; label: string; count: number }[]> {
+    const rows = await Lead.aggregate([
+      { $match: { source: { $nin: [null, ""] } } },
+      { $group: { _id: { $toLower: "$source" }, count: { $sum: 1 }, spellings: { $push: "$source" } } },
+      { $sort: { count: -1 } },
+    ]);
+
+    return rows.map((r: { _id: string; count: number; spellings: string[] }) => {
+      // pick the most frequent original spelling as the display label
+      const tally = new Map<string, number>();
+      for (const sp of r.spellings) tally.set(sp, (tally.get(sp) ?? 0) + 1);
+      const label = [...tally.entries()].sort((a, b) => b[1] - a[1])[0][0];
+      return { value: r._id, label, count: r.count };
+    });
+  }
+
   // ── List ─────────────────────────────────────────────────────────────────────
   async getLeads(filters: LeadFilters, userId?: string, userRole?: IRole) {
     const page = Math.max(1, parseInt(filters.page ?? "1", 10));
@@ -448,6 +469,13 @@ export class LeadService {
       query.assignedTo = roleScopedAssignee !== undefined ? { $in: [] } : { $in: [null] };
     }
     if (filters.course)     query.course     = filters.course;
+
+    // source is free text and casing is inconsistent across integrations
+    // ("whatsapp" vs "WhatsApp"), so match it case-insensitively.
+    if (filters.source) {
+      const escaped = filters.source.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      query.source = new RegExp(`^${escaped}$`, "i");
+    }
     if (filters.tags) {
       const tagIds = filters.tags.split(",").filter(Boolean);
       if (tagIds.length > 0) query.tags = { $in: tagIds };

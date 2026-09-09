@@ -245,6 +245,19 @@ export const getLeads = async (
   }
 };
 
+export const getLeadSources = async (
+  _req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<void> => {
+  try {
+    const sources = await leadService.getLeadSources();
+    sendSuccess(res, "Lead sources retrieved successfully", sources);
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const getLeadById = async (
   req: AuthenticatedRequest,
   res: Response,

@@ -4,6 +4,7 @@ import {
   uploadLeads,
   createLead,
   getLeads,
+  getLeadSources,
   getLeadById,
   updateLead,
   updateLeadStatus,
@@ -75,6 +76,8 @@ router.get("/reminders/count", checkPermission("reminders", "view"), getMyRemind
 // ─── Lead CRUD ────────────────────────────────────────────────────────────────
 router.post("/", checkPermission("leads", "create"), createLead);
 router.get("/", checkPermission("leads", "view"), getLeads);
+// static before parameterized — otherwise /:id swallows /sources
+router.get("/sources", checkPermission("leads", "view"), getLeadSources);
 router.get("/:id", checkPermission("leads", "view"), getLeadById);
 router.put("/:id", checkPermission("leads", "edit"), updateLead);
 router.patch("/:id/status",              checkPermission("leads", "edit"), updateLeadStatus);
