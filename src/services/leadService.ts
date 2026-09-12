@@ -213,10 +213,17 @@ async function findDummyTeam(): Promise<{ _id: Types.ObjectId } | null> {
 export async function resolveNewLeadTeam(opts: {
   preferredTeamId?: string | null;
   creatorId?: string | null;
+  /**
+   * A lead typed in by hand belongs to its creator's team straight away. Only
+   * ACQUIRED leads — bulk uploads, Google Sheets, WhatsApp — enter through the
+   * Dummy team to be distributed. Routing a hand-created lead to Dummy pushes it
+   * out of the creator's own view, which is not what anyone expects.
+   */
+  manual?: boolean;
 } = {}): Promise<string | null> {
   const settings = await getOrCreateSettings();
 
-  if (settings.workflowEnabled) {
+  if (settings.workflowEnabled && !opts.manual) {
     const dummyTeam = await findDummyTeam();
     if (dummyTeam) return dummyTeam._id.toString();
     console.warn(
@@ -372,17 +379,25 @@ export class LeadService {
       );
     }
 
-    // Workflow ON -> Dummy Team (entry point). OFF -> selected team, else creator's team.
+    // Hand-created lead: the chosen team, else the creator's own team. Never Dummy —
+    // that is the entry point for acquired leads, and sending a hand-created lead
+    // there hides it from the person who just created it.
     const resolvedTeamId = await resolveNewLeadTeam({
       preferredTeamId: data.team || null,
       creatorId: reporterId,
+      manual: true,
     });
+
+    // Default the owner to whoever created it, so it lands in their queue rather
+    // than sitting unassigned in a team list.
+    const resolvedAssignee = data.assignedTo || reporterId;
 
     const lead = await Lead.create({
       ...data,
       phone: normalizedPhone,
       team: resolvedTeamId,
-      assignedAt: data.assignedTo ? new Date() : null,
+      assignedTo: resolvedAssignee,
+      assignedAt: new Date(),
       reporter: reporterId,
       activityLogs: [
         {
