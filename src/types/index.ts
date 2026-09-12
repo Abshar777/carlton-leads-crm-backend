@@ -159,7 +159,9 @@ export interface ICourse extends Document {
 }
 
 // ─── Lead ──────────────────────────────────────────────────────────────────────
-export type LeadStatus = "new" | "assigned" | "followup" | "closed" | "invalid" | "cnc" | "booking" | "notinterested" | "interested" | "rnr" | "callback" | "whatsapp" | "student";
+// Single source of truth: src/constants/leadStatus.ts
+import type { LeadStatus } from "../constants/leadStatus.js";
+export type { LeadStatus };
 
 export type ActivityAction =
   | "lead_created"

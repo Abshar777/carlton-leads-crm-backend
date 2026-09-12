@@ -177,6 +177,24 @@ async function getWorkflowReservedTeamIds(): Promise<string[]> {
   return teams.map((t) => t._id.toString());
 }
 
+/**
+ * True when the user is a leader or member of the Closing-tagged team, or a Super
+ * Admin. Gates the statuses only the Closing team may set.
+ */
+export async function canSetClosingOnlyStatus(userId: string, roleName?: string): Promise<boolean> {
+  if (roleName === "Super Admin") return true;
+
+  const closing = await findTeamByTagName("Closing");
+  if (!closing) return false;
+
+  const team = await Team.findOne({
+    _id: closing._id,
+    $or: [{ leaders: userId }, { members: userId }],
+  }).select("_id").lean();
+
+  return !!team;
+}
+
 /** Find the Dummy Team (the entry-point team that collects all new leads). */
 async function findDummyTeam(): Promise<{ _id: Types.ObjectId } | null> {
   return findTeamByTagName("Dummy");

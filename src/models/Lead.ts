@@ -1,4 +1,5 @@
 import mongoose, { Schema } from "mongoose";
+import { LEAD_STATUS_VALUES } from "../constants/leadStatus.js";
 import type { ILead, ILeadNote, IActivityLog, IReminder, IPayment, ICallLog, IBookingDetails } from "../types/index.js";
 
 // ─── Note Sub-Schema ──────────────────────────────────────────────────────────
@@ -204,7 +205,7 @@ const leadSchema = new Schema<ILead>(
     },
     status: {
       type: String,
-      enum: ["new", "assigned", "followup", "closed", "invalid", "cnc", "booking", "notinterested", "interested", "rnr", "callback", "whatsapp", "student"],
+      enum: LEAD_STATUS_VALUES,
       default: "new",
     },
     assignedTo: {

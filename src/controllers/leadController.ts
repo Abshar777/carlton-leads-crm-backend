@@ -1,7 +1,8 @@
 import type { Response, NextFunction } from "express";
 import { z } from "zod";
+import { LEAD_STATUSES, isClosingOnlyStatus } from "../constants/leadStatus.js";
 import type { AuthenticatedRequest, IRole } from "../types/index.js";
-import { LeadService } from "../services/leadService.js";
+import { LeadService, canSetClosingOnlyStatus } from "../services/leadService.js";
 import { ExcelService } from "../services/excelService.js";
 import { sendSuccess, sendError } from "../utils/response.js";
 import { sendPushToUser } from "../services/pushService.js";
@@ -60,7 +61,7 @@ const bookingDetailsSchema = z.object({
 });
 
 const updateStatusSchema = z.object({
-  status: z.enum(["new", "assigned", "followup", "closed", "invalid", "cnc", "booking", "notinterested", "interested", "rnr", "callback", "whatsapp", "student"]),
+  status: z.enum(LEAD_STATUSES),
   bookingDetails: bookingDetailsSchema.optional(),
   reminderAt: z.string().optional(),
 }).superRefine((data, ctx) => {
@@ -317,6 +318,19 @@ export const updateLeadStatus = async (
         parsed.error.flatten().fieldErrors,
       );
       return;
+    }
+
+    // Closing-only statuses are gated server-side — the client dropdown hides them,
+    // but the API must refuse them too or the restriction is cosmetic.
+    if (isClosingOnlyStatus(parsed.data.status)) {
+      const allowed = await canSetClosingOnlyStatus(
+        req.user!.userId,
+        (req.user?.role as { roleName?: string } | undefined)?.roleName,
+      );
+      if (!allowed) {
+        sendError(res, "Only Closing team members can set this status", 403);
+        return;
+      }
     }
 
     const lead = await leadService.updateLeadStatus(
@@ -577,7 +591,7 @@ export const bulkUpdateLeadStatus = async (
 ): Promise<void> => {
   try {
     const parsed = bulkLeadIdsSchema
-      .extend({ status: z.enum(["new", "assigned", "followup", "closed", "invalid", "cnc", "booking", "notinterested", "interested", "rnr", "callback", "whatsapp", "student"]) })
+      .extend({ status: z.enum(LEAD_STATUSES) })
       .safeParse(req.body);
     if (!parsed.success) {
       sendError(res, "Validation failed", 400, parsed.error.flatten().fieldErrors);
