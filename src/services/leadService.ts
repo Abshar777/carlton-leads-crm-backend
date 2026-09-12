@@ -6,6 +6,7 @@ import { Team } from "../models/Team.js";
 import { Tag } from "../models/Tag.js";
 import { buildPagination } from "../utils/response.js";
 import { emitTeamUpdate, emitToUser } from "../socket.js";
+import { LEAD_STATUSES } from "../constants/leadStatus.js";
 import { sendPushToUsers, notifyLeadAssignment } from "./pushService.js";
 import type {
   LeadFilters,
@@ -1032,21 +1033,7 @@ export class LeadService {
   }
 
   async getUserLeadStats(userId: string): Promise<LeadStats> {
-    const statuses: LeadStatus[] = [
-      "new",
-      "assigned",
-      "followup",
-      "closed",
-      "invalid",
-      "cnc",
-      "booking",
-      "notinterested",
-      "interested",
-      "rnr",
-      "callback",
-      "whatsapp",
-      "student",
-    ];
+    const statuses: LeadStatus[] = [...LEAD_STATUSES];
     const [total, ...statusCounts] = await Promise.all([
       Lead.countDocuments({ assignedTo: userId }),
       ...statuses.map((s) =>

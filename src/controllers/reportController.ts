@@ -7,6 +7,7 @@ import { User } from "../models/User.js";
 import { Team } from "../models/Team.js";
 import mongoose from "mongoose";
 import * as XLSX from "xlsx";
+import { LEAD_STATUSES } from "../constants/leadStatus.js";
 
 const svc = new ReportService();
 
@@ -400,10 +401,7 @@ export const exportBookingsExcel = async (
   }
 };
 
-const ALL_LEAD_STATUSES = [
-  "new","assigned","followup","interested","cnc","booking",
-  "notinterested","closed","invalid","rnr","callback","whatsapp","student",
-] as const;
+const ALL_LEAD_STATUSES = [...LEAD_STATUSES] as const;
 
 /**
  * GET /api/reports/team-member-report?teamId=...

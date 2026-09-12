@@ -6,6 +6,7 @@ import { Lead } from "../models/Lead.js";
 import { Team } from "../models/Team.js";
 import { User } from "../models/User.js";
 import mongoose from "mongoose";
+import { LEAD_STATUSES } from "../constants/leadStatus.js";
 
 const reportService = new ReportService();
 
@@ -340,10 +341,7 @@ export const exportPdf = async (
 // Shared PDF helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-const ALL_STATUSES_EX = [
-  "new", "assigned", "followup", "interested", "cnc", "booking", "notinterested", "closed", "invalid",
-  "rnr", "callback", "whatsapp", "student",
-] as const;
+const ALL_STATUSES_EX = [...LEAD_STATUSES] as const;
 
 const STATUS_COLORS_EX: Record<string, string> = {
   new:"#3b82f6", assigned:"#eab308", followup:"#f97316",
@@ -475,6 +473,11 @@ export const exportTeamPdf = async (
             callback:       { $sum: { $cond: [{ $eq: ["$status","callback"] },       1, 0] } },
             whatsapp:       { $sum: { $cond: [{ $eq: ["$status","whatsapp"] },       1, 0] } },
             student:        { $sum: { $cond: [{ $eq: ["$status","student"] },        1, 0] } },
+            nextbatch:     { $sum: { $cond: [{ $eq: ["$status", "nextbatch"] }, 1, 0] } },
+            reschedule:    { $sum: { $cond: [{ $eq: ["$status", "reschedule"] }, 1, 0] } },
+            paid100:       { $sum: { $cond: [{ $eq: ["$status", "paid100"] }, 1, 0] } },
+            paid200:       { $sum: { $cond: [{ $eq: ["$status", "paid200"] }, 1, 0] } },
+            paid500:       { $sum: { $cond: [{ $eq: ["$status", "paid500"] }, 1, 0] } },
           }},
         ]);
         const d = agg2[0] ?? { total:0, totalPayments:0, closed:0, followup:0, cnc:0, booking:0, notinterested:0, interested:0, invalid:0, rnr:0, callback:0, whatsapp:0, student:0 };

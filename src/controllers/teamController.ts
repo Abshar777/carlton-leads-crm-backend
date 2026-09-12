@@ -9,6 +9,7 @@ import { emitTeamUpdate, emitToUser } from "../socket.js";
 import { sendPushToUsers } from "../services/pushService.js";
 import { Team } from "../models/Team.js";
 import { Lead } from "../models/Lead.js";
+import { LEAD_STATUSES } from "../constants/leadStatus.js";
 
 const teamService   = new TeamService();
 const reportService = new ReportService();
@@ -298,21 +299,7 @@ export async function bulkUpdateTeamLeadsStatus(
   try {
     const parsed = bulkLeadIdsSchema
       .extend({
-        status: z.enum([
-          "new",
-          "assigned",
-          "followup",
-          "closed",
-          "invalid",
-          "cnc",
-          "booking",
-          "notinterested",
-          "interested",
-          "rnr",
-          "callback",
-          "whatsapp",
-          "student",
-        ]),
+        status: z.enum(LEAD_STATUSES),
       })
       .parse(req.body);
     const result = await teamService.bulkUpdateTeamLeadsStatus(
@@ -650,10 +637,7 @@ export async function updateTeamSettings(
 
 // ── Team member report (with date filtering) ──────────────────────────────────
 
-const ALL_STATUSES = [
-  "new","assigned","followup","interested","cnc","booking",
-  "notinterested","closed","invalid","rnr","callback","whatsapp","student",
-] as const;
+const ALL_STATUSES = [...LEAD_STATUSES] as const;
 
 /**
  * GET /:id/member-report?dateFrom=YYYY-MM-DD&dateTo=YYYY-MM-DD

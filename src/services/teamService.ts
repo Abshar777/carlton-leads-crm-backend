@@ -448,7 +448,7 @@ export class TeamService {
     }
     const base = { team: teamId, ...dateFilter };
 
-    const [total, newCount, assigned, followup, closed, invalid, unassigned, cnc, booking, notinterested, interested, rnr, callback, whatsapp, student, thisMonth] =
+    const [total, newCount, assigned, followup, closed, invalid, unassigned, cnc, booking, notinterested, interested, rnr, callback, whatsapp, student, nextbatch, reschedule, paid100, paid200, paid500, thisMonth] =
       await Promise.all([
         Lead.countDocuments(base),
         Lead.countDocuments({ ...base, status: "new" }),
@@ -465,6 +465,11 @@ export class TeamService {
         Lead.countDocuments({ ...base, status: "callback" }),
         Lead.countDocuments({ ...base, status: "whatsapp" }),
         Lead.countDocuments({ ...base, status: "student" }),
+        Lead.countDocuments({ ...base, status: "nextbatch" }),
+        Lead.countDocuments({ ...base, status: "reschedule" }),
+        Lead.countDocuments({ ...base, status: "paid100" }),
+        Lead.countDocuments({ ...base, status: "paid200" }),
+        Lead.countDocuments({ ...base, status: "paid500" }),
         Lead.countDocuments({ team: teamId, createdAt: { $gte: dashMonthStart } }), // always current month
       ]);
 
@@ -493,6 +498,11 @@ export class TeamService {
               callback:       { $sum: { $cond: [{ $eq: ["$status", "callback"] },       1, 0] } },
               whatsapp:       { $sum: { $cond: [{ $eq: ["$status", "whatsapp"] },       1, 0] } },
               student:        { $sum: { $cond: [{ $eq: ["$status", "student"] },        1, 0] } },
+              nextbatch:     { $sum: { $cond: [{ $eq: ["$status", "nextbatch"] }, 1, 0] } },
+              reschedule:    { $sum: { $cond: [{ $eq: ["$status", "reschedule"] }, 1, 0] } },
+              paid100:       { $sum: { $cond: [{ $eq: ["$status", "paid100"] }, 1, 0] } },
+              paid200:       { $sum: { $cond: [{ $eq: ["$status", "paid200"] }, 1, 0] } },
+              paid500:       { $sum: { $cond: [{ $eq: ["$status", "paid500"] }, 1, 0] } },
               // Sum all payments collected across all leads assigned to this member
               totalPayments:  { $sum: { $sum: "$payments.amount" } },
             },
@@ -534,7 +544,7 @@ export class TeamService {
     memberRankings.sort((a, b) => b.totalPayments - a.totalPayments);
 
     return {
-      statusDistribution: { total, thisMonth, new: newCount, assigned, followup, closed, invalid, unassigned, cnc, booking, notinterested, interested, rnr, callback, whatsapp, student },
+      statusDistribution: { total, thisMonth, new: newCount, assigned, followup, closed, invalid, unassigned, cnc, booking, notinterested, interested, rnr, callback, whatsapp, student, nextbatch, reschedule, paid100, paid200, paid500 },
       memberRankings,
     };
   }
@@ -897,6 +907,11 @@ export class TeamService {
           callback:       { $sum: { $cond: [{ $eq: ["$status", "callback"] },       1, 0] } },
           whatsapp:       { $sum: { $cond: [{ $eq: ["$status", "whatsapp"] },       1, 0] } },
           student:        { $sum: { $cond: [{ $eq: ["$status", "student"] },        1, 0] } },
+          nextbatch:     { $sum: { $cond: [{ $eq: ["$status", "nextbatch"] }, 1, 0] } },
+          reschedule:    { $sum: { $cond: [{ $eq: ["$status", "reschedule"] }, 1, 0] } },
+          paid100:       { $sum: { $cond: [{ $eq: ["$status", "paid100"] }, 1, 0] } },
+          paid200:       { $sum: { $cond: [{ $eq: ["$status", "paid200"] }, 1, 0] } },
+          paid500:       { $sum: { $cond: [{ $eq: ["$status", "paid500"] }, 1, 0] } },
           totalPayments:  { $sum: { $sum: "$payments.amount" } },
         },
       },

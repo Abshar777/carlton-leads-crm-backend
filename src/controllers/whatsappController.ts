@@ -15,6 +15,7 @@ import {
   getStatus,
 } from "../services/whatsappService.js";
 import { resolveNewLeadTeam } from "../services/leadService.js";
+import { LEAD_STATUSES } from "../constants/leadStatus.js";
 
 // ── Status & connection ───────────────────────────────────────────────────────
 
@@ -265,10 +266,7 @@ export const createLeadFromChat = async (
     const createSchema = z.object({
       name:   z.string().max(100).optional(),
       email:  z.string().email("Invalid email").optional().or(z.literal("")),
-      status: z.enum([
-        "new","assigned","followup","closed","invalid","cnc","booking",
-        "notinterested","interested","rnr","callback","whatsapp","student",
-      ]).default("new"),
+      status: z.enum([...LEAD_STATUSES]).default("new"),
     });
     const parsed = createSchema.safeParse(req.body);
     if (!parsed.success) {

@@ -2,11 +2,9 @@ import mongoose from "mongoose";
 import { Lead } from "../models/Lead.js";
 import { Team } from "../models/Team.js";
 import { User } from "../models/User.js";
+import { LEAD_STATUSES } from "../constants/leadStatus.js";
 
-const ALL_STATUSES = [
-  "new", "assigned", "followup", "interested", "cnc", "booking", "notinterested", "closed", "invalid",
-  "rnr", "callback", "whatsapp", "student",
-] as const;
+const ALL_STATUSES = [...LEAD_STATUSES] as const;
 
 type LeadStatus = (typeof ALL_STATUSES)[number];
 

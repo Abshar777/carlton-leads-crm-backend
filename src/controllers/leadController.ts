@@ -23,8 +23,7 @@ const createLeadSchema = z.object({
   phone: z.string().min(1, "Phone is required").max(20).regex(PHONE_RE, "Invalid phone number format"),
   source: z.string().max(100).optional(),
   course: z.string().optional().nullable(),
-  status: z
-    .enum(["new", "assigned", "followup", "closed", "invalid", "cnc", "booking", "notinterested", "interested", "rnr", "callback", "whatsapp", "student"])
+  status: z.enum(LEAD_STATUSES)
     .optional(),
   team: z.string().optional().nullable(),
   assignedTo: z.string().optional(),
@@ -41,8 +40,7 @@ const updateLeadSchema = z.object({
   phone: z.string().min(1).max(20).regex(PHONE_RE, "Invalid phone number format").optional(),
   source: z.string().max(100).optional().nullable(),
   course: z.string().optional().nullable(),
-  status: z
-    .enum(["new", "assigned", "followup", "closed", "invalid", "cnc", "booking", "notinterested", "interested", "rnr", "callback", "whatsapp", "student"])
+  status: z.enum(LEAD_STATUSES)
     .optional(),
   assignedTo: z.string().optional().nullable(),
 });
