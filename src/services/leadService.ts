@@ -248,17 +248,15 @@ async function autoSplitLead(
   leadId: string,
   performedById: string,
   overrideMemberIds?: string[],
-  /**
-   * Split even when the team has autoAssign switched off. Used by the workflow
-   * booking -> Closing transfer, where landing the lead on an owner is part of the
-   * business rule rather than an opt-in team preference.
-   */
-  force = false,
 ): Promise<string | null> {
   try {
     const team = await Team.findById(teamId).populate("members", "_id").populate("leaders", "_id").lean();
     if (!team) return null;
-    if (!force && !team.settings?.autoAssign) return null;
+
+    // Every caller — including the workflow booking -> Closing transfer — respects the
+    // team's "Auto-Split Leads" switch. With it off the lead stays in the unassigned
+    // pool for a leader to hand out, which is what the team Settings screen promises.
+    if (!team.settings?.autoAssign) return null;
 
     const allMemberIds = [
       ...team.leaders.map((u: { _id: { toString(): string } }) => u._id.toString()),
@@ -759,24 +757,16 @@ export class LeadService {
           await lead.save();
           void emitActivity(lead as never);
 
-          // Hand the lead to a Closing team member. autoSplitLead sets assignedTo,
-          // status "assigned" and assignedAt together, so the lead never ends up
-          // reading "assigned" with nobody on it. Forced, because landing an owner is
-          // part of this workflow rule rather than the team's autoAssign preference.
-          const assignee = await autoSplitLead(
+          // Hand the lead to a Closing team member, but only if that team has
+          // "Auto-Split Leads" switched on. autoSplitLead sets assignedTo, status
+          // "assigned" and assignedAt together, so the lead never reads "assigned"
+          // with nobody on it. With the switch off it returns null and the lead stays
+          // status "booking" in the unassigned pool for a leader to assign.
+          await autoSplitLead(
             closingTeam._id.toString(),
             lead._id.toString(),
             performedById,
-            undefined,
-            true,
           );
-          if (!assignee) {
-            console.warn(
-              `[workflow] Lead ${lead._id.toString()} was transferred to the Closing Team ` +
-              `but could not be assigned to a member (no eligible active members?). ` +
-              `Status stays "booking" until someone picks it up.`,
-            );
-          }
         } else {
           console.warn(
             `[workflow] Lead ${lead._id.toString()} moved to "booking" but no active ` +
