@@ -227,6 +227,11 @@ const leadSchema = new Schema<ILead>(
       ref: "Team",
       default: null,
     },
+    /** When the lead last moved between teams. Backs the transfer-date filter. */
+    transferredAt: {
+      type: Date,
+      default: null,
+    },
     sharedWithTeams: {
       type: [{ type: Schema.Types.ObjectId, ref: "Team" }],
       default: [],
@@ -299,6 +304,7 @@ leadSchema.index({ phone: 1 }, { unique: true, sparse: true });
 // Sparse unique index on email (allows multiple nulls)
 leadSchema.index({ email: 1 });
 leadSchema.index({ status: 1 });
+leadSchema.index({ transferredAt: -1 });
 leadSchema.index({ assignedTo: 1 });
 leadSchema.index({ team: 1 });
 leadSchema.index({ reporter: 1 });

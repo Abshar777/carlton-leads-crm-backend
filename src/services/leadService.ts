@@ -548,6 +548,24 @@ export class LeadService {
       }
     }
 
+    // ── Transfer-date range on transferredAt (IST-aware) ────────────────────────
+    // Stamped whenever a lead moves between teams. Same +05:30 handling as the
+    // ranges above, so an IST day boundary is not 5.5 hours off.
+    if (filters.transferFrom || filters.transferTo) {
+      const tRange: Record<string, Date> = {};
+      if (filters.transferFrom) {
+        const from = new Date(filters.transferFrom + "T00:00:00.000+05:30");
+        if (!isNaN(from.getTime())) tRange.$gte = from;
+      }
+      if (filters.transferTo) {
+        const to = new Date(filters.transferTo + "T23:59:59.999+05:30");
+        if (!isNaN(to.getTime())) tRange.$lte = to;
+      }
+      if (Object.keys(tRange).length > 0) {
+        query.transferredAt = tRange;
+      }
+    }
+
     // ── Split-date range on assignedAt (IST-aware) ──────────────────────────────
     // assignedAt is stamped by autoSplitLead() and every other assignment path, so
     // it is the moment a lead was split out to a member. Same +05:30 handling as
@@ -788,6 +806,7 @@ export class LeadService {
                 previousTeam: previousTeamId,
                 assignedTo:   null,
                 assignedAt:   null,
+                transferredAt: new Date(),
                 // Fresh work item for the Closing team. autoSplitLead below flips this
                 // to "assigned" if it lands on a member; assignLead does the same when
                 // a leader hands it out by hand. bookingDetails is untouched, so the
@@ -1048,6 +1067,20 @@ export class LeadService {
         if (!isNaN(to.getTime())) updatedRange.$lte = to;
       }
       if (Object.keys(updatedRange).length > 0) query.updatedAt = updatedRange;
+    }
+
+    // Transfer-date range (IST-aware) — mirrors the one in getLeads
+    if (filters.transferFrom || filters.transferTo) {
+      const tRange: Record<string, Date> = {};
+      if (filters.transferFrom) {
+        const from = new Date(filters.transferFrom + "T00:00:00.000+05:30");
+        if (!isNaN(from.getTime())) tRange.$gte = from;
+      }
+      if (filters.transferTo) {
+        const to = new Date(filters.transferTo + "T23:59:59.999+05:30");
+        if (!isNaN(to.getTime())) tRange.$lte = to;
+      }
+      if (Object.keys(tRange).length > 0) query.transferredAt = tRange;
     }
 
     if (filters.search) {
@@ -1324,6 +1357,10 @@ export class LeadService {
     // Clear member assignment when reassigning to a (possibly different) team
     lead.team = team._id;
     (lead as unknown as Record<string, unknown>).assignedTo = null;
+    // Only a genuine move counts as a transfer — re-assigning to the same team does not
+    if (prevTeamId && prevTeamId !== team._id.toString()) {
+      (lead as unknown as Record<string, unknown>).transferredAt = new Date();
+    }
     lead.status = "new";
 
     addLog(
@@ -1360,6 +1397,7 @@ export class LeadService {
 
     lead.team = newTeam._id;
     (lead as unknown as Record<string, unknown>).assignedTo = null;
+    (lead as unknown as Record<string, unknown>).transferredAt = new Date();
     lead.status = "new";
 
     addLog(

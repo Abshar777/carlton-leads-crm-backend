@@ -256,6 +256,7 @@ export interface ILead extends Document {
   assignedAt?: Date | null;
   team?: Types.ObjectId | ITeam;
   previousTeam?: Types.ObjectId | ITeam;
+  transferredAt?: Date | null;
   sharedWithTeams: Types.Array<Types.ObjectId | ITeam>;
   reporter: Types.ObjectId | IUser;
   notes: Types.DocumentArray<ILeadNote & Document>;
@@ -296,6 +297,10 @@ export interface LeadFilters {
   previousTeam?: string;
   /** "true" -> only leads that arrived from another team (previousTeam is set) */
   transferredIn?: string;
+  /** ISO date string – leads transferred between teams on or after this date */
+  transferFrom?: string;
+  /** ISO date string – leads transferred on or before this date (inclusive) */
+  transferTo?: string;
   /** ISO date string – leads split (assigned to a member) on or after this date */
   splitFrom?: string;
   /** ISO date string – leads split on or before this date (inclusive, end of day) */

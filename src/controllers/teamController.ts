@@ -166,6 +166,8 @@ export async function getTeamLeads(
       unassignedOnly: req.query.unassignedOnly as string | undefined,
       dateFrom: req.query.dateFrom as string | undefined,
       dateTo: req.query.dateTo as string | undefined,
+      transferFrom: req.query.transferFrom as string | undefined,
+      transferTo: req.query.transferTo as string | undefined,
       updatedFrom: req.query.updatedFrom as string | undefined,
       updatedTo: req.query.updatedTo as string | undefined,
       course: req.query.course as string | undefined,

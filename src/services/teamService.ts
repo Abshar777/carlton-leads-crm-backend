@@ -193,6 +193,8 @@ export class TeamService {
       dateTo?: string;
       updatedFrom?: string;
       updatedTo?: string;
+      transferFrom?: string;
+      transferTo?: string;
       course?: string;
     }
   ) {
@@ -237,6 +239,20 @@ export class TeamService {
         if (!isNaN(to.getTime())) updatedRange.$lte = to;
       }
       if (Object.keys(updatedRange).length > 0) query.updatedAt = updatedRange;
+    }
+
+    // Transfer-date range (IST-aware) — mirrors the one in getLeads
+    if (filters.transferFrom || filters.transferTo) {
+      const tRange: Record<string, Date> = {};
+      if (filters.transferFrom) {
+        const from = new Date(filters.transferFrom + "T00:00:00.000+05:30");
+        if (!isNaN(from.getTime())) tRange.$gte = from;
+      }
+      if (filters.transferTo) {
+        const to = new Date(filters.transferTo + "T23:59:59.999+05:30");
+        if (!isNaN(to.getTime())) tRange.$lte = to;
+      }
+      if (Object.keys(tRange).length > 0) query.transferredAt = tRange;
     }
 
     const [leads, total] = await Promise.all([
