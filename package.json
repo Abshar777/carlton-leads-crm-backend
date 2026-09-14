@@ -16,7 +16,8 @@
     "mcp": "bun mcp-server/index.ts",
     "backfill:dummy": "bun scripts/backfill-unassigned-to-dummy.ts",
     "backfill:closing": "bun scripts/backfill-booking-to-closing.ts",
-    "backfill:transferred": "bun scripts/backfill-transferred-at.ts"
+    "backfill:transferred": "bun scripts/backfill-transferred-at.ts",
+    "fix:self-transfers": "bun scripts/fix-self-transfers.ts"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",

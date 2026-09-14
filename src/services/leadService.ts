@@ -790,7 +790,13 @@ export class LeadService {
       if (status === "booking") {
         // Transfer lead from Booking Team → Closing Team
         const closingTeam = await findTeamByTagName("Closing");
-        if (closingTeam) {
+        // A lead already sitting in the Closing team has nowhere to go. Without this
+        // guard it "transfers" to itself: previousTeam is stamped with the same team,
+        // and the lead then shows up under BOTH Transferred In and Transferred Out.
+        const alreadyInClosing =
+          !!closingTeam && lead.team?.toString() === closingTeam._id.toString();
+
+        if (closingTeam && !alreadyInClosing) {
           const previousTeamId  = lead.team ?? null;
           const previousOwnerId = lead.assignedTo ?? null;
 
@@ -846,13 +852,14 @@ export class LeadService {
             lead._id.toString(),
             performedById,
           );
-        } else {
+        } else if (!closingTeam) {
           console.warn(
             `[workflow] Lead ${lead._id.toString()} moved to "booking" but no active ` +
             `Closing team could be resolved — the transfer was skipped. ` +
             `See the preceding [workflow] tag warning for the cause.`,
           );
         }
+        // alreadyInClosing needs no warning — nothing to do is the correct outcome.
       }
 
       if (status === "closed") {
