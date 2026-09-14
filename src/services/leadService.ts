@@ -788,6 +788,12 @@ export class LeadService {
                 previousTeam: previousTeamId,
                 assignedTo:   null,
                 assignedAt:   null,
+                // Fresh work item for the Closing team. autoSplitLead below flips this
+                // to "assigned" if it lands on a member; assignLead does the same when
+                // a leader hands it out by hand. bookingDetails is untouched, so the
+                // Bookings Report — which keys off bookingDetails, not status — still
+                // counts it.
+                status:       "new",
               },
               $addToSet: { sharedWithTeams: [] }, // reset doesn't hurt
             },
@@ -795,6 +801,7 @@ export class LeadService {
           // Keep the in-memory doc in step — addLog + save run against it below.
           (lead as unknown as Record<string, unknown>).assignedTo = null;
           (lead as unknown as Record<string, unknown>).assignedAt = null;
+          lead.status = "new";
 
           addLog(
             lead as never,
@@ -804,6 +811,7 @@ export class LeadService {
             {
               team:       { from: previousTeamId?.toString() ?? null,  to: closingTeam._id.toString() },
               assignedTo: { from: previousOwnerId?.toString() ?? null, to: null },
+              status:     { from: "booking", to: "new" },
             },
           );
           await lead.save();
