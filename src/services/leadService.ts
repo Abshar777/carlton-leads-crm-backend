@@ -773,20 +773,38 @@ export class LeadService {
         // Transfer lead from Booking Team → Closing Team
         const closingTeam = await findTeamByTagName("Closing");
         if (closingTeam) {
-          const previousTeamId = lead.team ?? null;
+          const previousTeamId  = lead.team ?? null;
+          const previousOwnerId = lead.assignedTo ?? null;
+
+          // Clear the owner on transfer. The booking-team member who closed the
+          // booking should not keep owning the lead once it belongs to Closing —
+          // it lands in Closing's unassigned pool instead. This matches what the
+          // manual transferLeadToTeam already does.
           await Lead.updateOne(
             { _id: lead._id },
             {
-              $set: { team: closingTeam._id, previousTeam: previousTeamId },
+              $set: {
+                team:         closingTeam._id,
+                previousTeam: previousTeamId,
+                assignedTo:   null,
+                assignedAt:   null,
+              },
               $addToSet: { sharedWithTeams: [] }, // reset doesn't hurt
             },
           );
+          // Keep the in-memory doc in step — addLog + save run against it below.
+          (lead as unknown as Record<string, unknown>).assignedTo = null;
+          (lead as unknown as Record<string, unknown>).assignedAt = null;
+
           addLog(
             lead as never,
             "team_changed",
             `Lead auto-transferred to Closing Team by workflow`,
             performedById,
-            { team: { from: previousTeamId?.toString() ?? null, to: closingTeam._id.toString() } },
+            {
+              team:       { from: previousTeamId?.toString() ?? null,  to: closingTeam._id.toString() },
+              assignedTo: { from: previousOwnerId?.toString() ?? null, to: null },
+            },
           );
           await lead.save();
           void emitActivity(lead as never);
