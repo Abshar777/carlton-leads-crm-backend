@@ -293,25 +293,32 @@ export class TeamService {
   async autoAssignTeamLeadsToMembers(teamId: string, leadIds?: string[]) {
     const team = await Team.findById(teamId)
       .populate("members", "name")
-      .populate("leaders", "_id")
+      .populate("leaders", "name")
       .populate("inactiveMembers", "_id");
     if (!team) throw Object.assign(new Error("Team not found"), { statusCode: 404 });
 
-    // Exclude team leaders — only regular members receive auto-assigned leads
-    const leaderIds = new Set(
-      (team.leaders as unknown as { _id: { toString(): string } }[]).map((l) => l._id.toString()),
-    );
-    // Also exclude members marked inactive for auto-assignment in this team
-    // inactiveMembers is populated with "_id" so we must extract ._id, not call
-    // .toString() on the whole document (which would yield "[object Object]").
+    // Leaders take leads alongside members. Only the inactiveMembers list is
+    // excluded, which is the same pool autoSplitLead uses — the two paths agree.
+    // inactiveMembers is populated with "_id", so extract ._id rather than calling
+    // .toString() on the whole document (that would yield "[object Object]").
     const inactiveMemberIds = new Set(
       (team.inactiveMembers as unknown as { _id: { toString(): string } }[]).map((m) => m._id.toString()),
     );
-    const membersList = (team.members as unknown as Array<{ _id: { toString(): string }; name: string }>)
-      .filter((m) => !leaderIds.has(m._id.toString()) && !inactiveMemberIds.has(m._id.toString()));
+
+    type Assignable = { _id: { toString(): string }; name: string };
+    const seen = new Set<string>();
+    const membersList = [
+      ...(team.leaders as unknown as Assignable[]),
+      ...(team.members as unknown as Assignable[]),
+    ].filter((m) => {
+      const id = m._id.toString();
+      if (seen.has(id) || inactiveMemberIds.has(id)) return false;
+      seen.add(id);
+      return true;
+    });
 
     if (membersList.length === 0) {
-      throw Object.assign(new Error("No active members available for auto-assignment (all members are inactive or are leaders)"), { statusCode: 400 });
+      throw Object.assign(new Error("No active members available for auto-assignment (everyone in this team is marked inactive)"), { statusCode: 400 });
     }
 
     // Get leads to assign — either specific leads or all unassigned team leads
