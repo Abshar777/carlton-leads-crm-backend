@@ -81,6 +81,7 @@ export class UserService {
     const [users, total] = await Promise.all([
       User.find(filter)
         .populate("role", "roleName")
+        .populate("workSchedule")
         .sort({ [sortField]: sortOrder })
         .skip(skip)
         .limit(limit)
@@ -92,7 +93,7 @@ export class UserService {
   }
 
   async getUserById(id: string) {
-    const user = await User.findById(id).populate("role");
+    const user = await User.findById(id).populate("role").populate("workSchedule");
     if (!user) {
       throw Object.assign(new Error("User not found"), { statusCode: 404 });
     }
@@ -141,7 +142,7 @@ export class UserService {
       throw Object.assign(new Error("You cannot delete your own account"), { statusCode: 400 });
     }
 
-    const user = await User.findById(id).populate("role");
+    const user = await User.findById(id).populate("role").populate("workSchedule");
     if (!user) {
       throw Object.assign(new Error("User not found"), { statusCode: 404 });
     }

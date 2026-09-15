@@ -15,6 +15,7 @@ import whatsappRoutes from "./whatsappRoutes.js";
 import tagRoutes from "./tagRoutes.js";
 import appSettingsRoutes from "./appSettingsRoutes.js";
 import trapRoutes from "./trapRoutes.js";
+import workScheduleRoutes from "./workScheduleRoutes.js";
 
 const router = Router();
 
@@ -34,6 +35,7 @@ router.use("/whatsapp", whatsappRoutes);
 router.use("/tags",    tagRoutes);
 router.use("/settings/app", appSettingsRoutes);
 router.use("/traps",       trapRoutes);
+router.use("/work-schedules", workScheduleRoutes);
 
 // Health check
 router.get("/health", (_req, res) => {
