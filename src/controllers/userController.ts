@@ -1,6 +1,7 @@
 import type { Response, NextFunction } from "express";
 import type { AuthenticatedRequest, IRole } from "../types/index.js";
 import { UserService } from "../services/userService.js";
+import { workScheduleSchema } from "../validations/userValidation.js";
 import { createUserSchema, updateUserSchema } from "../validations/userValidation.js";
 import { sendSuccess, sendError } from "../utils/response.js";
 import { verifyAccessToken } from "../utils/jwt.js";
@@ -91,6 +92,33 @@ export const impersonateUser = async (req: AuthenticatedRequest, res: Response, 
       req.user!.role as IRole,
     );
     sendSuccess(res, "Impersonation token generated", result);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const updateWorkSchedule = async (
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<void> => {
+  try {
+    // Super Admin only, as specified. checkPermission("users","edit") on the route
+    // would also let a team leader through, so the real gate is here.
+    const roleName = (req.user?.role as { roleName?: string } | undefined)?.roleName;
+    if (roleName !== "Super Admin") {
+      sendError(res, "Only a Super Admin can change a work schedule", 403);
+      return;
+    }
+
+    const parsed = workScheduleSchema.safeParse(req.body);
+    if (!parsed.success) {
+      sendError(res, "Validation failed", 400, parsed.error.flatten().fieldErrors);
+      return;
+    }
+
+    const user = await userService.updateWorkSchedule(req.params.id, parsed.data.workSchedule);
+    sendSuccess(res, "Work schedule updated", user);
   } catch (error) {
     next(error);
   }

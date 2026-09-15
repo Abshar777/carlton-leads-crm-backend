@@ -9,6 +9,7 @@ import {
   updateUser,
   deleteUser,
   impersonateUser,
+  updateWorkSchedule,
 } from "../controllers/userController.js";
 import { exportUserPdf } from "../controllers/exportController.js";
 import { authenticate } from "../middleware/auth.js";
@@ -36,5 +37,7 @@ router.put("/:id",            checkPermission("users", "edit"),           update
 router.delete("/:id",         checkPermission("users", "delete"),         deleteUser);
 router.get("/:id/export-pdf", exportUserPdf);
 router.post("/:id/impersonate", checkPermission("impersonate", "create"), impersonateUser);
+// Work schedule — Super Admin only (checkPermission lets Super Admin through all)
+router.put("/:id/work-schedule", checkPermission("users", "edit"), updateWorkSchedule);
 
 export default router;

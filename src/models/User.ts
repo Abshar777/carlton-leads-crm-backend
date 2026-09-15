@@ -2,6 +2,39 @@ import mongoose, { Schema } from "mongoose";
 import bcrypt from "bcryptjs";
 import type { IUser } from "../types/index.js";
 
+const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+const timeField = {
+  type: String,
+  validate: {
+    validator: (v: string | null | undefined) => v == null || v === "" || TIME_RE.test(v),
+    message: "Time must be in HH:mm format",
+  },
+};
+
+const workDaySchema = new Schema(
+  {
+    enabled:    { type: Boolean, default: false },
+    loginTime:  timeField,
+    breakStart: timeField,
+    breakEnd:   timeField,
+    logoutTime: timeField,
+  },
+  { _id: false },
+);
+
+const workScheduleSchema = new Schema(
+  {
+    mon: { type: workDaySchema, default: () => ({ enabled: false }) },
+    tue: { type: workDaySchema, default: () => ({ enabled: false }) },
+    wed: { type: workDaySchema, default: () => ({ enabled: false }) },
+    thu: { type: workDaySchema, default: () => ({ enabled: false }) },
+    fri: { type: workDaySchema, default: () => ({ enabled: false }) },
+    sat: { type: workDaySchema, default: () => ({ enabled: false }) },
+    sun: { type: workDaySchema, default: () => ({ enabled: false }) },
+  },
+  { _id: false },
+);
+
 const userSchema = new Schema<IUser>(
   {
     name: {
@@ -38,6 +71,15 @@ const userSchema = new Schema<IUser>(
       type: String,
       enum: ["active", "inactive"],
       default: "active",
+    },
+    /**
+     * Optional per-weekday work schedule. Times are "HH:mm" strings read as IST —
+     * deliberately not Dates, which would drift with timezone and make "09:30"
+     * ambiguous. null means this user has no schedule, which is the default.
+     */
+    workSchedule: {
+      type: workScheduleSchema,
+      default: null,
     },
   },
   {

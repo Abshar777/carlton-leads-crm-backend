@@ -7,6 +7,23 @@ import { buildPagination } from "../utils/response.js";
 import { signAccessToken } from "../utils/jwt.js";
 
 export class UserService {
+  /**
+   * Replace a user's work schedule. Pass null to remove it — a user without a
+   * schedule is the default and is treated no differently anywhere else.
+   */
+  async updateWorkSchedule(userId: string, workSchedule: unknown) {
+    const user = await User.findByIdAndUpdate(
+      userId,
+      { $set: { workSchedule: workSchedule ?? null } },
+      { new: true, runValidators: true },
+    )
+      .populate("role", "roleName")
+      .lean();
+
+    if (!user) throw Object.assign(new Error("User not found"), { statusCode: 404 });
+    return user;
+  }
+
   async createUser(input: CreateUserInput) {
     const existingUser = await User.findOne({ email: input.email.toLowerCase() });
     if (existingUser) {

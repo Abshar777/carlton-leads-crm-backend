@@ -48,6 +48,22 @@ export interface IRole extends Document {
 }
 
 // ─── User ─────────────────────────────────────────────────────────────────────
+/** One day of a work schedule. Times are "HH:mm", read as IST. */
+export interface IWorkDay {
+  /** false = weekly off. The other fields are ignored when this is false. */
+  enabled: boolean;
+  loginTime?: string;
+  breakStart?: string;
+  breakEnd?: string;
+  logoutTime?: string;
+}
+
+export const WORK_DAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as const;
+export type WorkDayKey = typeof WORK_DAYS[number];
+
+/** Optional per-weekday schedule. null / absent = this user has no schedule. */
+export type IWorkSchedule = Record<WorkDayKey, IWorkDay>;
+
 export interface IUser extends Document {
   _id: Types.ObjectId;
   name: string;
@@ -56,6 +72,7 @@ export interface IUser extends Document {
   role: Types.ObjectId | IRole;
   designation?: string;
   status: "active" | "inactive";
+  workSchedule?: IWorkSchedule | null;
   createdAt: Date;
   updatedAt: Date;
   comparePassword(candidatePassword: string): Promise<boolean>;
