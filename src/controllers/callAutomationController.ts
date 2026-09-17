@@ -4,7 +4,7 @@ import { CallSession } from "../models/CallSession.js";
 import { WorkSchedule } from "../models/WorkSchedule.js";
 import { User } from "../models/User.js";
 import { sendSuccess, sendError } from "../utils/response.js";
-import { shiftStateFor, nextLeadFor, openSessionFor, onBreak } from "../services/callAutomationService.js";
+import { shiftStateFor, nextLeadFor, openSessionFor, onBreak, adminOverview, notifyAdminsOfCallActivity } from "../services/callAutomationService.js";
 
 /** GET /call-automation/my-session — what, if anything, is waiting on me. */
 export const getMySession = async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
@@ -64,6 +64,7 @@ export const respondToSession = async (req: AuthenticatedRequest, res: Response,
     }
 
     await session.save();
+    void notifyAdminsOfCallActivity({ sessionId: session._id.toString(), action });
     return sendSuccess(res, "Recorded", session);
   } catch (error) { next(error); }
 };
@@ -76,6 +77,7 @@ export const endBreak = async (req: AuthenticatedRequest, res: Response, next: N
       { user: req.user!.userId, action: "break", breakEndsAt: { $gt: now } },
       { $set: { breakEndsAt: now } },
     );
+    void notifyAdminsOfCallActivity({ action: "break-ended", userId: req.user!.userId });
     return sendSuccess(res, "Break ended", { endedAt: now });
   } catch (error) { next(error); }
 };
@@ -86,5 +88,18 @@ export const getNextLead = async (req: AuthenticatedRequest, res: Response, next
     if (await onBreak(req.user!.userId)) return sendSuccess(res, "On break", null);
     const lead = await nextLeadFor(req.user!.userId);
     return sendSuccess(res, lead ? "Next lead" : "Queue is empty", lead);
+  } catch (error) { next(error); }
+};
+
+/** GET /call-automation/overview — Super Admin only. Rejections, long holds, breaks. */
+export const getOverview = async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  try {
+    const roleName = (req.user?.role as { roleName?: string } | undefined)?.roleName;
+    if (roleName !== "Super Admin") {
+      return sendError(res, "Only a Super Admin can view call automation", 403);
+    }
+    const { dateFrom, dateTo, userId } = req.query as Record<string, string | undefined>;
+    const data = await adminOverview({ dateFrom, dateTo, userId });
+    return sendSuccess(res, "Call automation overview", data);
   } catch (error) { next(error); }
 };

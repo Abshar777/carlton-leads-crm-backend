@@ -1,3 +1,4 @@
+import { Types } from "mongoose";
 import { CallSession } from "../models/CallSession.js";
 import { WorkSchedule, DAY_KEYS } from "../models/WorkSchedule.js";
 import { User } from "../models/User.js";
@@ -172,4 +173,137 @@ export function startCallAutomationScheduler(): void {
 
 export function stopCallAutomationScheduler(): void {
   if (timer) { clearInterval(timer); timer = null; }
+}
+
+// ─── Admin reporting ──────────────────────────────────────────────────────────
+
+export interface AdminOverviewFilters {
+  dateFrom?: string;
+  dateTo?: string;
+  userId?: string;
+}
+
+function istRange(f: AdminOverviewFilters) {
+  const range: Record<string, Date> = {};
+  if (f.dateFrom) {
+    const d = new Date(`${f.dateFrom}T00:00:00.000+05:30`);
+    if (!isNaN(d.getTime())) range.$gte = d;
+  }
+  if (f.dateTo) {
+    const d = new Date(`${f.dateTo}T23:59:59.999+05:30`);
+    if (!isNaN(d.getTime())) range.$lte = d;
+  }
+  // Default to today (IST) so the page opens on something useful rather than
+  // every session ever recorded.
+  if (!range.$gte && !range.$lte) {
+    const now = new Date();
+    const ist = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
+    range.$gte = new Date(`${ist.toISOString().slice(0, 10)}T00:00:00.000+05:30`);
+  }
+  return range;
+}
+
+/** Everything the Call Automation page needs, in one round trip. */
+export async function adminOverview(filters: AdminOverviewFilters = {}) {
+  const match: Record<string, unknown> = { promptedAt: istRange(filters) };
+  if (filters.userId && Types.ObjectId.isValid(filters.userId)) {
+    // aggregate() does not cast strings to ObjectId the way find() does
+    match.user = new Types.ObjectId(filters.userId);
+  }
+
+  const [byAction, rejections, longHolds, activeBreaks, perUser] = await Promise.all([
+    CallSession.aggregate([
+      { $match: match },
+      { $group: { _id: "$action", n: { $sum: 1 } } },
+    ]),
+
+    CallSession.find({ ...match, action: "rejected" })
+      .populate("user", "name email")
+      .populate("lead", "name phone status")
+      .sort({ respondedAt: -1 })
+      .limit(200)
+      .lean(),
+
+    // "Held too long" is per-schedule, so the threshold is resolved per row on
+    // the way out rather than baked into this query.
+    CallSession.find({ ...match, holdSeconds: { $ne: null } })
+      .populate("user", "name email")
+      .populate("lead", "name phone")
+      .sort({ holdSeconds: -1 })
+      .limit(200)
+      .lean(),
+
+    CallSession.find({ action: "break", breakEndsAt: { $gt: new Date() } })
+      .populate("user", "name email")
+      .sort({ respondedAt: -1 })
+      .lean(),
+
+    CallSession.aggregate([
+      { $match: match },
+      {
+        $group: {
+          _id: "$user",
+          total:     { $sum: 1 },
+          called:    { $sum: { $cond: [{ $eq: ["$action", "called"] },   1, 0] } },
+          updated:   { $sum: { $cond: [{ $eq: ["$action", "updated"] },  1, 0] } },
+          rejected:  { $sum: { $cond: [{ $eq: ["$action", "rejected"] }, 1, 0] } },
+          breaks:    { $sum: { $cond: [{ $eq: ["$action", "break"] },    1, 0] } },
+          expired:   { $sum: { $cond: [{ $eq: ["$action", "expired"] },  1, 0] } },
+          avgHold:   { $avg: "$holdSeconds" },
+          maxHold:   { $max: "$holdSeconds" },
+        },
+      },
+      { $lookup: { from: "users", localField: "_id", foreignField: "_id", as: "u" } },
+      { $project: {
+          total: 1, called: 1, updated: 1, rejected: 1, breaks: 1, expired: 1,
+          avgHold: 1, maxHold: 1,
+          name: { $arrayElemAt: ["$u.name", 0] },
+      } },
+      { $sort: { total: -1 } },
+    ]),
+  ]);
+
+  // Resolve each user's holdAlertMinutes so "over threshold" respects their own
+  // schedule rather than a single global number.
+  const users = await User.find({ workSchedule: { $ne: null } })
+    .populate("workSchedule", "holdAlertMinutes")
+    .select("_id workSchedule")
+    .lean();
+  const thresholdFor = new Map(
+    users.map((u) => [
+      String(u._id),
+      ((u.workSchedule as unknown as { holdAlertMinutes?: number } | null)?.holdAlertMinutes ?? 10) * 60,
+    ]),
+  );
+
+  const flaggedHolds = longHolds.filter((h) => {
+    const limit = thresholdFor.get(String((h.user as { _id?: unknown })?._id ?? h.user)) ?? 600;
+    return (h.holdSeconds ?? 0) >= limit;
+  });
+
+  const counts = byAction.reduce(
+    (a: Record<string, number>, r: { _id: string | null; n: number }) => ({ ...a, [r._id ?? "open"]: r.n }),
+    {},
+  );
+
+  return { counts, rejections, flaggedHolds, activeBreaks, perUser };
+}
+
+/**
+ * Tell every Super Admin that a call session changed, so the Call Automation
+ * page updates without waiting for its 30s poll. Fire-and-forget: a failure
+ * here must never break the employee's own action.
+ */
+export async function notifyAdminsOfCallActivity(payload: Record<string, unknown>): Promise<void> {
+  try {
+    const admins = await User.find({ isActive: true }).populate("role").select("role").lean();
+    for (const admin of admins) {
+      const role = admin.role as { isSystemRole?: boolean; roleName?: string } | null;
+      if (role?.isSystemRole && role?.roleName === "Super Admin") {
+        emitToUser(admin._id.toString(), "call:activity", payload);
+      }
+    }
+  } catch (err) {
+    console.error("[callAutomation] admin notify failed:", err);
+  }
 }
