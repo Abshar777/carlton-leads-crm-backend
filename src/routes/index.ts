@@ -16,6 +16,7 @@ import tagRoutes from "./tagRoutes.js";
 import appSettingsRoutes from "./appSettingsRoutes.js";
 import trapRoutes from "./trapRoutes.js";
 import workScheduleRoutes from "./workScheduleRoutes.js";
+import callAutomationRoutes from "./callAutomationRoutes.js";
 
 const router = Router();
 
@@ -36,6 +37,7 @@ router.use("/tags",    tagRoutes);
 router.use("/settings/app", appSettingsRoutes);
 router.use("/traps",       trapRoutes);
 router.use("/work-schedules", workScheduleRoutes);
+router.use("/call-automation", callAutomationRoutes);
 
 // Health check
 router.get("/health", (_req, res) => {

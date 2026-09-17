@@ -21,6 +21,12 @@ export interface IWorkSchedule {
   workDays: Record<DayKey, DayMode>;
   /** Minutes of lateness tolerated before a login counts as late. */
   graceMinutes: number;
+  /** Call automation — re-prompt this many minutes after an unanswered prompt. */
+  promptIntervalMinutes: number;
+  /** A prompt held longer than this is flagged on the Call Automation page. */
+  holdAlertMinutes: number;
+  /** A break auto-resumes after this many minutes. */
+  breakMinutes: number;
   isActive: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -62,6 +68,9 @@ const workScheduleSchema = new Schema<IWorkSchedule>(
       default: () => DAY_KEYS.reduce((a, d) => ({ ...a, [d]: "off" }), {}),
     },
     graceMinutes: { type: Number, default: 0, min: [0, "Grace cannot be negative"], max: [240, "Grace cannot exceed 240 minutes"] },
+    promptIntervalMinutes: { type: Number, default: 2,  min: [1, "Prompt interval must be at least 1 minute"], max: [120, "Prompt interval cannot exceed 120 minutes"] },
+    holdAlertMinutes:      { type: Number, default: 10, min: [1, "Hold alert must be at least 1 minute"],      max: [240, "Hold alert cannot exceed 240 minutes"] },
+    breakMinutes:          { type: Number, default: 15, min: [1, "Break must be at least 1 minute"],           max: [240, "Break cannot exceed 240 minutes"] },
     isActive:     { type: Boolean, default: true },
   },
   { timestamps: true, versionKey: false },

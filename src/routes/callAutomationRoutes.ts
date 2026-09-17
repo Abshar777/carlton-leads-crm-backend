@@ -1,0 +1,17 @@
+import { Router } from "express";
+import { authenticate } from "../middleware/auth.js";
+import {
+  getMySession, respondToSession, endBreak, getNextLead,
+} from "../controllers/callAutomationController.js";
+
+const router = Router();
+router.use(authenticate);
+
+// Every route here acts on the signed-in user's own session — no extra
+// permission needed, and none of them can reach another user's data.
+router.get("/my-session",              getMySession);
+router.get("/next-lead",               getNextLead);
+router.post("/sessions/:id/respond",   respondToSession);
+router.post("/break/end",              endBreak);
+
+export default router;
