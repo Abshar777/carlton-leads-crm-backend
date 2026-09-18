@@ -107,6 +107,58 @@ export class WorkScheduleService {
     return { deleted: true };
   }
 
+  /** Everyone currently on this schedule. */
+  async members(scheduleId: string) {
+    const schedule = await WorkSchedule.findById(scheduleId).select("_id name").lean();
+    if (!schedule) throw Object.assign(new Error("Schedule not found"), { statusCode: 404 });
+
+    return User.find({ workSchedule: scheduleId })
+      .select("name email isActive")
+      .populate("role", "roleName")
+      .sort({ name: 1 })
+      .lean();
+  }
+
+  /**
+   * Replace this schedule's member list in one go.
+   *
+   * A user has at most one schedule, so adding someone here moves them off
+   * whatever they were on before, and anyone dropped from the list is left with
+   * no schedule at all — which is what stops their call prompts.
+   */
+  async setMembers(scheduleId: string, userIds: string[]) {
+    const schedule = await WorkSchedule.findById(scheduleId).select("_id name").lean();
+    if (!schedule) throw Object.assign(new Error("Schedule not found"), { statusCode: 404 });
+
+    const wanted = [...new Set((userIds ?? []).map(String).filter(Boolean))];
+    if (wanted.length) {
+      const found = await User.countDocuments({ _id: { $in: wanted } });
+      if (found !== wanted.length) {
+        bad("One or more of those users do not exist");
+      }
+    }
+
+    const current = await User.find({ workSchedule: scheduleId }).select("_id").lean();
+    const currentIds = current.map((u) => String(u._id));
+
+    const toAdd    = wanted.filter((id) => !currentIds.includes(id));
+    const toRemove = currentIds.filter((id) => !wanted.includes(id));
+
+    if (toRemove.length) {
+      await User.updateMany({ _id: { $in: toRemove } }, { $set: { workSchedule: null } });
+    }
+    if (toAdd.length) {
+      // Moves them off any other schedule as a side effect — one schedule per user
+      await User.updateMany({ _id: { $in: toAdd } }, { $set: { workSchedule: scheduleId } });
+    }
+
+    console.log(
+      `[workSchedule] "${schedule.name}": +${toAdd.length} -${toRemove.length} → ${wanted.length} member(s)`,
+    );
+
+    return { added: toAdd.length, removed: toRemove.length, members: await this.members(scheduleId) };
+  }
+
   /** Assign a schedule to a user, or pass null to clear it. */
   async assign(userId: string, scheduleId: string | null) {
     if (scheduleId) {

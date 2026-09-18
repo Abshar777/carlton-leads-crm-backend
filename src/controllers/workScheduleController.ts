@@ -56,3 +56,25 @@ export const assignWorkSchedule = async (req: AuthenticatedRequest, res: Respons
     sendSuccess(res, scheduleId ? "Work schedule assigned" : "Work schedule removed", user);
   } catch (error) { next(error); }
 };
+
+/** GET /work-schedules/:id/members — who is on this schedule. */
+export const getScheduleMembers = async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  try {
+    // Readable by anyone signed in, same as listing the schedules themselves
+    const members = await service.members(req.params.id);
+    sendSuccess(res, "Schedule members", members);
+  } catch (error) { next(error); }
+};
+
+/** PUT /work-schedules/:id/members — body { userIds: string[] } replaces the list. */
+export const updateScheduleMembers = async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  try {
+    if (!requireSuperAdmin(req, res)) return;
+    const { userIds } = req.body as { userIds?: unknown };
+    if (!Array.isArray(userIds)) {
+      return sendError(res, "userIds must be an array", 400);
+    }
+    const result = await service.setMembers(req.params.id, userIds as string[]);
+    sendSuccess(res, "Schedule members updated", result);
+  } catch (error) { next(error); }
+};
