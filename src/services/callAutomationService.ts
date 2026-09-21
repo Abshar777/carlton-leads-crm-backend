@@ -65,6 +65,30 @@ export function openSessionFor(userId: string) {
   return CallSession.findOne({ user: userId, action: null }).sort({ promptedAt: -1 });
 }
 
+/** The call whose details they still owe us, if any. */
+export function pendingOutcomeFor(userId: string) {
+  return CallSession.findOne({ user: userId, outcomeStatus: "pending" }).sort({ callStartedAt: -1 });
+}
+
+/** How long we keep asking whether someone is back before giving up on them. */
+export const BREAK_RETURN_WINDOW_MINUTES = 30;
+
+/**
+ * A finished break that is still waiting for "I'm back".
+ *
+ * Only breaks the scheduler has actually asked about count, which is what keeps
+ * every historical break row out of this — they were never prompted.
+ */
+export function awaitingBreakReturnFor(userId: string) {
+  return CallSession.findOne({
+    user: userId,
+    action: "break",
+    breakReturnPromptedAt: { $ne: null },
+    breakReturnedAt: null,
+    breakReturnClosedAt: null,
+  }).sort({ breakEndsAt: -1 });
+}
+
 /** True when the user is inside an active break. */
 export async function onBreak(userId: string): Promise<boolean> {
   const b = await CallSession.findOne({
@@ -101,19 +125,67 @@ export async function runCallPromptTick(now = new Date()) {
 
     // Off shift: close any prompt still hanging so it is not answered tomorrow
     if (!onShift) {
-      const open = await openSessionFor(userId);
-      if (open) {
+      const stale = await CallSession.find({ user: userId, action: null });
+      for (const open of stale) {
         open.action = "expired";
         open.respondedAt = now;
         open.holdSeconds = Math.round((now.getTime() - open.promptedAt.getTime()) / 1000);
         await open.save();
         expired += 1;
       }
+
+      // A pending outcome blocks every future prompt, so it must not survive the
+      // shift. Closing it as skipped keeps it visible to an admin rather than
+      // quietly dropping a call nobody wrote up.
+      const owing = await pendingOutcomeFor(userId);
+      if (owing) {
+        owing.outcomeStatus = "skipped";
+        owing.outcomeSkipReason = "Not filled in before the shift ended";
+        owing.outcomeAt = now;
+        await owing.save();
+        expired += 1;
+      }
+
+      const unconfirmed = await awaitingBreakReturnFor(userId);
+      if (unconfirmed) {
+        unconfirmed.breakReturnClosedAt = now;
+        await unconfirmed.save();
+        expired += 1;
+      }
       continue;
     }
 
-    if (await openSessionFor(userId)) continue;        // already waiting on them
+    // Break just ran out and nobody has asked yet — ask now.
+    const justEnded = await CallSession.findOne({
+      user: userId,
+      action: "break",
+      breakEndsAt: { $lte: now, $gte: new Date(now.getTime() - BREAK_RETURN_WINDOW_MINUTES * 60_000) },
+      breakReturnPromptedAt: null,
+      breakReturnedAt: null,
+      breakReturnClosedAt: null,
+    }).sort({ breakEndsAt: -1 });
+    if (justEnded) {
+      justEnded.breakReturnPromptedAt = now;
+      await justEnded.save();
+      emitToUser(userId, "call:break-over", {
+        sessionId: String(justEnded._id),
+        breakEndsAt: justEnded.breakEndsAt,
+      });
+    }
+
+    // Asked a while ago and still no answer — stop blocking them, but leave the
+    // row unconfirmed so the admin page can show it.
+    const ignoring = await awaitingBreakReturnFor(userId);
+    if (ignoring?.breakReturnPromptedAt &&
+        now.getTime() - ignoring.breakReturnPromptedAt.getTime() >= BREAK_RETURN_WINDOW_MINUTES * 60_000) {
+      ignoring.breakReturnClosedAt = now;
+      await ignoring.save();
+    }
+
+    if (await openSessionFor(userId)) continue;         // already waiting on them
+    if (await pendingOutcomeFor(userId)) continue;      // owes details on the last call
     if (await onBreak(userId)) continue;
+    if (await awaitingBreakReturnFor(userId)) continue; // has not confirmed they are back
 
     const interval = schedule.promptIntervalMinutes ?? 2;
     const last = await CallSession.findOne({ user: userId, respondedAt: { $ne: null } })
@@ -211,7 +283,7 @@ export async function adminOverview(filters: AdminOverviewFilters = {}) {
     match.user = new Types.ObjectId(filters.userId);
   }
 
-  const [byAction, rejections, longHolds, activeBreaks, perUser] = await Promise.all([
+  const [byAction, rejections, longHolds, activeBreaks, perUser, callLog, outcomeCounts, breakLog] = await Promise.all([
     CallSession.aggregate([
       { $match: match },
       { $group: { _id: "$action", n: { $sum: 1 } } },
@@ -261,6 +333,27 @@ export async function adminOverview(filters: AdminOverviewFilters = {}) {
       } },
       { $sort: { total: -1 } },
     ]),
+
+    // Every dialled call, with its write-up and the full trail of edits.
+    CallSession.find({ ...match, action: "called" })
+      .populate("user", "name email")
+      .populate("lead", "name phone status")
+      .populate("outcomeHistory.recordedBy", "name")
+      .sort({ callStartedAt: -1 })
+      .limit(300)
+      .lean(),
+
+    CallSession.aggregate([
+      { $match: { ...match, action: "called" } },
+      { $group: { _id: "$outcomeStatus", n: { $sum: 1 } } },
+    ]),
+
+    // Every break in the period, with how it ended.
+    CallSession.find({ ...match, action: "break" })
+      .populate("user", "name email")
+      .sort({ respondedAt: -1 })
+      .limit(200)
+      .lean(),
   ]);
 
   // Resolve each user's holdAlertMinutes so "over threshold" respects their own
@@ -286,7 +379,28 @@ export async function adminOverview(filters: AdminOverviewFilters = {}) {
     {},
   );
 
-  return { counts, rejections, flaggedHolds, activeBreaks, perUser };
+  const outcome = outcomeCounts.reduce(
+    (a: Record<string, number>, r: { _id: string | null; n: number }) => ({ ...a, [r._id ?? "none"]: r.n }),
+    {},
+  );
+
+  // Still being asked whether they are back, or gave up on ever answering.
+  const awaitingReturn = breakLog.filter(
+    (b) => b.breakReturnPromptedAt && !b.breakReturnedAt && !b.breakReturnClosedAt,
+  );
+  const unconfirmedReturns = breakLog.filter((b) => !!b.breakReturnClosedAt && !b.breakReturnedAt);
+
+  return {
+    counts, rejections, flaggedHolds, activeBreaks, perUser,
+    callLog,
+    breakLog,
+    awaitingReturn,
+    unconfirmedReturns,
+    outcomeCounts: outcome,
+    // Split out so the page can flag them without filtering client-side.
+    pendingOutcomes: callLog.filter((c) => c.outcomeStatus === "pending"),
+    skippedOutcomes: callLog.filter((c) => c.outcomeStatus === "skipped"),
+  };
 }
 
 /**

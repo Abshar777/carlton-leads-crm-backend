@@ -48,10 +48,17 @@ const start = async () => {
   httpServer.listen(env.PORT, () => {
     console.log(`🚀 Server running on http://localhost:${env.PORT} [${env.NODE_ENV}]`);
     console.log(`📋 API Base: http://localhost:${env.PORT}/api/v1`);
-    // Start after server is listening so Socket.IO is ready for emitToUser
-    startReminderScheduler();
-    startBackupScheduler();
-    startCallAutomationScheduler();
+    // A dev machine usually points at the same database as production, so its
+    // schedulers would fire reminders, backups and call prompts at real people
+    // alongside the live server's. Set DISABLE_SCHEDULERS=true locally.
+    if (env.DISABLE_SCHEDULERS) {
+      console.log("⏸️  Schedulers disabled (DISABLE_SCHEDULERS=true) — no reminders, backups or call prompts from this process");
+    } else {
+      // Start after server is listening so Socket.IO is ready for emitToUser
+      startReminderScheduler();
+      startBackupScheduler();
+      startCallAutomationScheduler();
+    }
     initWhatsApp().catch((err) => console.error("WhatsApp init error:", err));
   });
 };

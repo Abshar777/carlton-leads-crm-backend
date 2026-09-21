@@ -20,6 +20,13 @@ const envSchema = z.object({
   TELEGRAM_CHAT_ID:    z.string().default(""),
   OLLAMA_BASE_URL:     z.string().default("http://localhost:11434"),
   OLLAMA_MODEL:        z.string().default("llama3.2"),
+  /**
+   * Turns off every background scheduler in this process. Set it on any dev or
+   * staging instance that shares the production database, or its schedulers
+   * will fire reminders, backups and call prompts at real users in parallel
+   * with the live server's.
+   */
+  DISABLE_SCHEDULERS: z.preprocess((v) => v === "true" || v === true, z.boolean()).default(false),
 });
 
 const parsed = envSchema.safeParse(process.env);
