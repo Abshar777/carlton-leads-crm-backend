@@ -256,6 +256,7 @@ export interface ILead extends Document {
   course?: Types.ObjectId | ICourse;
   assignedTo?: Types.ObjectId | IUser;
   assignedAt?: Date | null;
+  lastCallPromptedAt?: Date | null;
   team?: Types.ObjectId | ITeam;
   previousTeam?: Types.ObjectId | ITeam;
   transferredAt?: Date | null;

@@ -232,6 +232,15 @@ const leadSchema = new Schema<ILead>(
       type: Date,
       default: null,
     },
+    /**
+     * When the call-automation popup last offered this lead. Used only to stop
+     * the same lead being offered on a loop — it is written with timestamps
+     * disabled so being offered never counts as the lead being "updated".
+     */
+    lastCallPromptedAt: {
+      type: Date,
+      default: null,
+    },
     sharedWithTeams: {
       type: [{ type: Schema.Types.ObjectId, ref: "Team" }],
       default: [],
@@ -309,5 +318,10 @@ leadSchema.index({ assignedTo: 1 });
 leadSchema.index({ team: 1 });
 leadSchema.index({ reporter: 1 });
 leadSchema.index({ createdAt: -1 });
+
+// The call queue runs one findOne per priority tier on every scheduler tick,
+// so it gets a compound index rather than leaning on assignedTo alone.
+leadSchema.index({ assignedTo: 1, status: 1, createdAt: -1 });
+leadSchema.index({ assignedTo: 1, status: 1, lastCallPromptedAt: 1 });
 
 export const Lead = mongoose.model<ILead>("Lead", leadSchema);

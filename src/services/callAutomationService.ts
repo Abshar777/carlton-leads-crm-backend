@@ -5,8 +5,23 @@ import { User } from "../models/User.js";
 import { Lead } from "../models/Lead.js";
 import { emitToUser } from "../socket.js";
 
-/** Statuses that make a lead worth calling. */
-export const CALLABLE_STATUSES = ["assigned", "cnc", "followup", "interested", "rnr"];
+/**
+ * Which lead to offer next, in order. The queue works a whole tier before it
+ * touches the next one: every callable "assigned" lead comes before the first
+ * "interested", and so on down the list.
+ */
+export const CALL_PRIORITY = [
+  "assigned", "interested", "callback", "followup", "cnc", "rnr",
+] as const;
+
+/** Statuses that make a lead worth calling — the tiers, order removed. */
+export const CALLABLE_STATUSES: string[] = [...CALL_PRIORITY];
+
+/** Midnight this morning, IST — the boundary for "offered already today". */
+function istDayStart(now = new Date()): Date {
+  const ymd = now.toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });  // YYYY-MM-DD
+  return new Date(`${ymd}T00:00:00.000+05:30`);
+}
 
 const mins = (t: string) => {
   const [h, m] = t.split(":").map(Number);
@@ -52,12 +67,54 @@ export function shiftStateFor(
   return { onShift, mode };
 }
 
-/** The next lead this user should call, or null when their queue is empty. */
-export async function nextLeadFor(userId: string) {
-  return Lead.findOne({ assignedTo: userId, status: { $in: CALLABLE_STATUSES } })
-    .sort({ updatedAt: 1 })            // least recently touched first
-    .select("name phone status")
-    .lean();
+/**
+ * The next lead this user should call, or null when their queue is empty.
+ *
+ * Walks CALL_PRIORITY in order and returns the first match, newest lead first
+ * within a tier. Leads already offered today are held back until the rest of
+ * the queue has been through, so the newest lead in the top tier cannot be
+ * handed out over and over — nothing else moves it down the order, since
+ * being called does not modify the lead.
+ */
+export async function nextLeadFor(userId: string, now = new Date()) {
+  const dayStart = istDayStart(now);
+  const select = "name phone status";
+
+  // Pass 1 — anything not yet offered today, best tier first, newest first
+  for (const status of CALL_PRIORITY) {
+    const lead = await Lead.findOne({
+      assignedTo: userId,
+      status,
+      $or: [{ lastCallPromptedAt: null }, { lastCallPromptedAt: { $lt: dayStart } }],
+    })
+      .sort({ createdAt: -1 })
+      .select(select)
+      .lean();
+    if (lead) return lead;
+  }
+
+  // Pass 2 — the whole queue has been offered today, so come back round to
+  // whoever was offered longest ago, still respecting the tier order
+  for (const status of CALL_PRIORITY) {
+    const lead = await Lead.findOne({ assignedTo: userId, status })
+      .sort({ lastCallPromptedAt: 1, createdAt: -1 })
+      .select(select)
+      .lean();
+    if (lead) return lead;
+  }
+
+  return null;
+}
+
+/**
+ * Remember that a lead was offered, without counting as an edit.
+ *
+ * timestamps:false matters — the leads list and several filters sort on
+ * updatedAt, and a lead should not jump to the top of them merely because the
+ * popup showed it to somebody.
+ */
+async function markLeadOffered(leadId: unknown, now: Date) {
+  await Lead.updateOne({ _id: leadId }, { $set: { lastCallPromptedAt: now } }, { timestamps: false });
 }
 
 /** The user's open prompt, if one is waiting on them. */
@@ -200,6 +257,7 @@ export async function runCallPromptTick(now = new Date()) {
     if (!lead) continue;                                // nothing to call
 
     const session = await CallSession.create({ user: userId, lead: lead._id, promptedAt: now });
+    await markLeadOffered(lead._id, now);
     emitToUser(userId, "call:prompt", {
       sessionId: String(session._id),
       promptedAt: session.promptedAt,
