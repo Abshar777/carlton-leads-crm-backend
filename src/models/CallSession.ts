@@ -30,7 +30,12 @@ export type CallResult = (typeof CALL_RESULTS)[number];
 /** One filling-in of the call details. Edits append rather than overwrite. */
 export interface ICallOutcomeEntry {
   callResult: CallResult;
+  /** The effective figure — the manual one, kept under the old name. */
   durationSeconds: number;
+  /** Measured by the system: Call Next pressed until they were back in the app. */
+  autoDurationSeconds?: number;
+  /** What the caller typed. Required, so in practice this equals durationSeconds. */
+  manualDurationSeconds?: number;
   note: string;
   recordedAt: Date;
   recordedBy: mongoose.Types.ObjectId;
@@ -71,7 +76,12 @@ export interface ICallSession {
   outcomeStatus?: CallOutcomeStatus | null;
   /** Latest values; the full trail lives in outcomeHistory. */
   callResult?: CallResult | null;
+  /** Effective duration — the entered one. Unchanged name so reports keep working. */
   callDurationSeconds?: number;
+  /** System-measured: Call Next pressed until they were back in the app. */
+  autoDurationSeconds?: number;
+  /** What the caller typed in. */
+  manualDurationSeconds?: number;
   callNote?: string;
   /** When the details were last filled in or edited. */
   outcomeAt?: Date | null;
@@ -85,8 +95,10 @@ export interface ICallSession {
 
 const outcomeEntrySchema = new Schema<ICallOutcomeEntry>(
   {
-    callResult:      { type: String, enum: CALL_RESULTS, required: true },
-    durationSeconds: { type: Number, required: true, min: 0 },
+    callResult:            { type: String, enum: CALL_RESULTS, required: true },
+    durationSeconds:       { type: Number, required: true, min: 0 },
+    autoDurationSeconds:   { type: Number, min: 0 },
+    manualDurationSeconds: { type: Number, min: 0 },
     note:            { type: String, required: true, trim: true, maxlength: [2000, "Note cannot exceed 2000 characters"] },
     recordedAt:      { type: Date, default: Date.now },
     recordedBy:      { type: Schema.Types.ObjectId, ref: "User", required: true },
@@ -116,7 +128,9 @@ const callSessionSchema = new Schema<ICallSession>(
     callStartedAt:       { type: Date, default: null },
     outcomeStatus:       { type: String, enum: CALL_OUTCOME_STATUSES, default: null },
     callResult:          { type: String, enum: CALL_RESULTS, default: null },
-    callDurationSeconds: { type: Number, min: 0 },
+    callDurationSeconds:   { type: Number, min: 0 },
+    autoDurationSeconds:   { type: Number, min: 0 },
+    manualDurationSeconds: { type: Number, min: 0 },
     callNote:            { type: String, trim: true, maxlength: [2000, "Note cannot exceed 2000 characters"] },
     outcomeAt:           { type: Date, default: null },
     outcomeSkipReason:   { type: String, trim: true, maxlength: [500, "Reason cannot exceed 500 characters"] },

@@ -143,7 +143,9 @@ export const getOverview = async (req: AuthenticatedRequest, res: Response, next
 
 /**
  * POST /call-automation/sessions/:id/outcome
- * body { callResult, durationSeconds, note } — all three required.
+ * body { callResult, manualDurationSeconds, note } — all three required.
+ * autoDurationSeconds is optional and advisory: the browser measures it, and the
+ * server caps it at the time actually elapsed since Call Next.
  *
  * Re-posting edits the details: the new values become current and the previous
  * ones stay in outcomeHistory, so an admin can see every version and when it
@@ -151,16 +153,24 @@ export const getOverview = async (req: AuthenticatedRequest, res: Response, next
  */
 export const submitCallOutcome = async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   try {
-    const { callResult, durationSeconds, note } = req.body as {
-      callResult?: string; durationSeconds?: unknown; note?: string;
+    const body = req.body as {
+      callResult?: string;
+      manualDurationSeconds?: unknown;
+      autoDurationSeconds?: unknown;
+      /** Old name for the entered duration, still accepted. */
+      durationSeconds?: unknown;
+      note?: string;
     };
+    const { callResult, note } = body;
 
     if (!callResult || !CALL_RESULTS.includes(callResult as CallResult)) {
       return sendError(res, `callResult must be one of: ${CALL_RESULTS.join(", ")}`, 400);
     }
-    const seconds = Number(durationSeconds);
-    if (!Number.isFinite(seconds) || seconds < 0) {
-      return sendError(res, "durationSeconds must be a number of seconds, 0 or more", 400);
+
+    const manualRaw = body.manualDurationSeconds ?? body.durationSeconds;
+    const manual = Number(manualRaw);
+    if (manualRaw === undefined || manualRaw === null || manualRaw === "" || !Number.isFinite(manual) || manual < 0) {
+      return sendError(res, "Enter the call duration — a number of seconds, 0 or more", 400);
     }
     if (!note?.trim()) {
       return sendError(res, "A note is required — say what happened on the call", 400);
@@ -173,8 +183,24 @@ export const submitCallOutcome = async (req: AuthenticatedRequest, res: Response
     }
 
     const now = new Date();
+
+    // The auto figure comes from the browser, so it is capped at the time that
+    // has actually passed since Call Next was pressed. A client cannot report
+    // a longer call than the clock allows.
+    const elapsed = session.callStartedAt
+      ? Math.round((now.getTime() - session.callStartedAt.getTime()) / 1000)
+      : undefined;
+    const autoRaw = Number(body.autoDurationSeconds);
+    const auto = Number.isFinite(autoRaw) && autoRaw >= 0
+      ? (elapsed !== undefined ? Math.min(Math.round(autoRaw), elapsed) : Math.round(autoRaw))
+      : elapsed;
+
+    const manualSeconds = Math.round(manual);
+
     session.callResult = callResult as CallResult;
-    session.callDurationSeconds = Math.round(seconds);
+    session.manualDurationSeconds = manualSeconds;
+    session.autoDurationSeconds = auto;
+    session.callDurationSeconds = manualSeconds;   // the entered figure is the one that counts
     session.callNote = note.trim();
     session.outcomeStatus = "submitted";
     session.outcomeAt = now;
@@ -183,7 +209,9 @@ export const submitCallOutcome = async (req: AuthenticatedRequest, res: Response
       ...(session.outcomeHistory ?? []),
       {
         callResult: callResult as CallResult,
-        durationSeconds: Math.round(seconds),
+        durationSeconds: manualSeconds,
+        manualDurationSeconds: manualSeconds,
+        autoDurationSeconds: auto,
         note: note.trim(),
         recordedAt: now,
         recordedBy: new Types.ObjectId(req.user!.userId),
