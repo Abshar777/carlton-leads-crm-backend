@@ -479,3 +479,130 @@ export async function notifyAdminsOfCallActivity(payload: Record<string, unknown
     console.error("[callAutomation] admin notify failed:", err);
   }
 }
+
+// ─── One employee's detail ────────────────────────────────────────────────────
+
+export interface EmployeeActivityFilters {
+  dateFrom?: string;
+  dateTo?: string;
+}
+
+/** A single change somebody made to a lead. */
+export interface LeadEdit {
+  leadId: string;
+  leadName: string;
+  action: string;
+  description: string;
+  changes?: Record<string, { from: unknown; to: unknown }>;
+  at: Date;
+}
+
+/**
+ * Everything one person did in the period: every prompt whatever became of it,
+ * every edit they made to a lead, and the totals over both.
+ *
+ * Separate from adminOverview because it is per-employee and only wanted when
+ * somebody opens the detail panel — putting it in the overview would carry it
+ * for every employee on every poll.
+ */
+export async function employeeActivity(userId: string, filters: EmployeeActivityFilters = {}) {
+  if (!Types.ObjectId.isValid(userId)) {
+    throw Object.assign(new Error("Invalid user id"), { statusCode: 400 });
+  }
+  const uid = new Types.ObjectId(userId);
+  const range = istRange(filters);
+
+  const SESSION_LIMIT = 500;
+  const LEAD_LIMIT = 500;
+  const EDIT_LIMIT = 300;
+
+  // Every prompt, whatever the outcome — including ones still open
+  const sessions = await CallSession.find({ user: uid, promptedAt: range })
+    .populate("lead", "name phone status")
+    .sort({ promptedAt: -1 })
+    .limit(SESSION_LIMIT)
+    .lean();
+
+  // Their edits, dug out of the leads' own activity trail
+  const leads = await Lead.find({
+    activityLogs: { $elemMatch: { performedBy: uid, createdAt: range } },
+  })
+    .select("name activityLogs")
+    .sort({ updatedAt: -1 })
+    .limit(LEAD_LIMIT)
+    .lean();
+
+  const leadEdits: LeadEdit[] = [];
+  for (const lead of leads) {
+    for (const log of (lead.activityLogs ?? []) as unknown as Array<{
+      performedBy?: unknown; createdAt: Date; action: string; description: string;
+      changes?: Record<string, { from: unknown; to: unknown }>;
+    }>) {
+      if (String(log.performedBy) !== userId) continue;
+      const at = new Date(log.createdAt);
+      if (range.$gte && at < range.$gte) continue;
+      if (range.$lte && at > range.$lte) continue;
+      leadEdits.push({
+        leadId: String(lead._id),
+        leadName: lead.name,
+        action: log.action,
+        description: log.description,
+        changes: log.changes,
+        at,
+      });
+    }
+  }
+  leadEdits.sort((a, b) => b.at.getTime() - a.at.getTime());
+
+  // ── Totals ──
+  const calls = sessions.filter((s) => s.action === "called");
+  const totalManualSeconds = calls.reduce((n, c) => n + (c.callDurationSeconds ?? 0), 0);
+  const totalAutoSeconds = calls.reduce((n, c) => n + (c.autoDurationSeconds ?? 0), 0);
+
+  const byAction: Record<string, number> = {};
+  for (const s of sessions) byAction[s.action ?? "open"] = (byAction[s.action ?? "open"] ?? 0) + 1;
+
+  const editsByAction: Record<string, number> = {};
+  const transitions: Record<string, number> = {};
+  for (const e of leadEdits) {
+    editsByAction[e.action] = (editsByAction[e.action] ?? 0) + 1;
+    const st = e.changes?.status;
+    if (st && st.from != null && st.to != null) {
+      const key = `${String(st.from)} → ${String(st.to)}`;
+      transitions[key] = (transitions[key] ?? 0) + 1;
+    }
+  }
+
+  // A wide date range can run past the caps. Say so rather than quietly
+  // showing a partial picture as if it were the whole one.
+  const truncated = {
+    sessions: sessions.length >= SESSION_LIMIT,
+    leads: leads.length >= LEAD_LIMIT,
+    edits: leadEdits.length > EDIT_LIMIT,
+  };
+
+  return {
+    sessions,
+    // Summary counts cover every edit found; the list itself is capped.
+    leadEdits: leadEdits.slice(0, EDIT_LIMIT),
+    truncated,
+    totals: {
+      prompts: sessions.length,
+      byAction,
+      calls: calls.length,
+      totalManualSeconds,
+      totalAutoSeconds,
+      /** Calls that were written up, so the total is read with the right weight. */
+      callsWithDuration: calls.filter((c) => c.callDurationSeconds != null).length,
+    },
+    updateSummary: {
+      totalEdits: leadEdits.length,
+      leadsTouched: new Set(leadEdits.map((e) => e.leadId)).size,
+      byAction: editsByAction,
+      /** Most frequent status moves first. */
+      transitions: Object.entries(transitions)
+        .sort((a, b) => b[1] - a[1])
+        .map(([label, count]) => ({ label, count })),
+    },
+  };
+}

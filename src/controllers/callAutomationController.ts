@@ -5,7 +5,7 @@ import { CallSession, CALL_RESULTS, type CallResult } from "../models/CallSessio
 import { WorkSchedule } from "../models/WorkSchedule.js";
 import { User } from "../models/User.js";
 import { sendSuccess, sendError } from "../utils/response.js";
-import { shiftStateFor, nextLeadFor, openSessionFor, onBreak, pendingOutcomeFor, awaitingBreakReturnFor, adminOverview, notifyAdminsOfCallActivity } from "../services/callAutomationService.js";
+import { shiftStateFor, nextLeadFor, openSessionFor, onBreak, pendingOutcomeFor, awaitingBreakReturnFor, adminOverview, employeeActivity, notifyAdminsOfCallActivity } from "../services/callAutomationService.js";
 
 /** GET /call-automation/my-session — what, if anything, is waiting on me. */
 export const getMySession = async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
@@ -298,5 +298,18 @@ export const extendBreak = async (req: AuthenticatedRequest, res: Response, next
 
     void notifyAdminsOfCallActivity({ sessionId: session._id.toString(), action: "break-extended" });
     return sendSuccess(res, `Break extended by ${minutes} min`, session);
+  } catch (error) { next(error); }
+};
+
+/** GET /call-automation/employee/:userId/activity — Super Admin only. */
+export const getEmployeeActivity = async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  try {
+    const roleName = (req.user?.role as { roleName?: string } | undefined)?.roleName;
+    if (roleName !== "Super Admin") {
+      return sendError(res, "Only a Super Admin can view call automation", 403);
+    }
+    const { dateFrom, dateTo } = req.query as Record<string, string | undefined>;
+    const data = await employeeActivity(req.params.userId, { dateFrom, dateTo });
+    return sendSuccess(res, "Employee activity", data);
   } catch (error) { next(error); }
 };

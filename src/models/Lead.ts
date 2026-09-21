@@ -324,4 +324,8 @@ leadSchema.index({ createdAt: -1 });
 leadSchema.index({ assignedTo: 1, status: 1, createdAt: -1 });
 leadSchema.index({ assignedTo: 1, status: 1, lastCallPromptedAt: 1 });
 
+// "what did this person change, and when" — a full scan over every lead
+// without it, which is what the employee activity panel asks on every open.
+leadSchema.index({ "activityLogs.performedBy": 1, "activityLogs.createdAt": -1 });
+
 export const Lead = mongoose.model<ILead>("Lead", leadSchema);
