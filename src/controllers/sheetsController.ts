@@ -45,6 +45,21 @@ function cleanPhone(raw: string): string {
   return raw.replace(/^p:/i, "").trim();
 }
 
+/**
+ * The email, but only if it really is one.
+ *
+ * The sheets carry placeholders rather than blanks — the WhatsApp sheet writes
+ * the literal "No Email" in every row. The Lead model validates this field with
+ * /^\S+@\S+\.\S+$/, so passing a placeholder through makes Mongoose throw and
+ * the whole row fails with a bare "Validation failed". A value that cannot be
+ * an address is dropped instead, which costs nothing: it was never usable.
+ */
+function cleanEmail(raw?: string): string | undefined {
+  const trimmed = raw?.trim();
+  if (!trimmed) return undefined;
+  return /^\S+@\S+\.\S+$/.test(trimmed) ? trimmed : undefined;
+}
+
 /** Map platform shortcodes to CRM source values */
 function mapPlatformToSource(platform?: string): string {
   if (!platform) return "other";
@@ -169,7 +184,7 @@ export const syncSheetLead = async (
 
     const row = parsed.data;
     const phone = cleanPhone(row.phone_number);
-    const email = row.email?.trim() || undefined;
+    const email = cleanEmail(row.email);
 
     // ── Duplicate check on phone ───────────────────────────────────────────
     const existing = await Lead.findOne({ phone });
@@ -308,7 +323,7 @@ export const syncSheetLeadsBatch = async (
 
       const row   = parsed.data;
       const phone = cleanPhone(row.phone_number);
-      const email = row.email?.trim() || undefined;
+      const email = cleanEmail(row.email);
 
       // Check duplicate
       const exists = await Lead.findOne({ phone });
