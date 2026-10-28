@@ -28,6 +28,12 @@ const sheetRowSchema = z.object({
   email:         z.string().optional(),
   city:          z.string().optional(),
   lead_status:   z.string().optional(),           // Facebook's own status (CREATED etc.)
+
+  // ── "WITH QA" sheet only ───────────────────────────────────────────────────
+  // Lead-form questions. Absent on the Meta and WhatsApp sheets, which is what
+  // keeps those rows producing exactly one note as before.
+  when_will_you_like_to_join:         z.string().optional(),
+  do_you_have_any_trading_experience: z.string().optional(),
 });
 
 type SheetRow = z.infer<typeof sheetRowSchema>;
@@ -48,6 +54,52 @@ function mapPlatformToSource(platform?: string): string {
   if (p === "wa" || p === "whatsapp")  return "whatsapp";
   if (p === "google" || p === "gads" || p === "google ads") return "google";
   return "other";
+}
+
+/**
+ * Facebook sends answers as raw option ids — "would_like_to_know_more". Turn
+ * them into something a caller can read at a glance, while leaving answers that
+ * are already plain text ("Not much", "Fees") untouched.
+ */
+function humaniseAnswer(raw: string): string {
+  const spaced = raw.trim().replace(/_/g, " ");
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+}
+
+/**
+ * Second note, from the lead-form questions on the "WITH QA" sheet.
+ *
+ * Returns null when the row carries neither answer, so Meta and WhatsApp rows
+ * keep getting a single note and no empty note is ever attached.
+ */
+function buildQaNote(row: SheetRow): string | null {
+  const join     = row.when_will_you_like_to_join?.trim();
+  const tradeExp = row.do_you_have_any_trading_experience?.trim();
+  if (!join && !tradeExp) return null;
+
+  const lines: string[] = [
+    "📝 Lead Form Answers",
+    "─────────────────────────────",
+  ];
+  if (join)     lines.push(`🕒 When will you like to join : ${humaniseAnswer(join)}`);
+  if (tradeExp) lines.push(`📈 Trading experience        : ${humaniseAnswer(tradeExp)}`);
+
+  return lines.join("\n");
+}
+
+/**
+ * The notes a freshly imported lead starts with: the import summary always, and
+ * the form answers as a *separate* second note when the row carries them.
+ */
+function buildNotes(row: SheetRow, authorId: unknown) {
+  const now = new Date();
+  const entries = [buildNote(row), buildQaNote(row)].filter(Boolean) as string[];
+  return entries.map((content) => ({
+    content,
+    author:    authorId,
+    createdAt: now,
+    updatedAt: now,
+  }));
 }
 
 /** Build note for Meta/Facebook Ads rows */
@@ -138,8 +190,8 @@ export const syncSheetLead = async (
     }
     const reporterId = superAdmin._id.toString();
 
-    // ── Build note from extra fields ───────────────────────────────────────
-    const noteContent = buildNote(row);
+    // ── Build the lead's starting notes ────────────────────────────────────
+    const noteDocs = buildNotes(row, reporterId);
 
     // ── Team routing ───────────────────────────────────────────────────────
     // Same rule every creation path uses: workflow ON -> Dummy Team (entry point).
@@ -158,14 +210,7 @@ export const syncSheetLead = async (
       campaign: row.campaign_name?.trim() || undefined,
       status:   "new",
       reporter: reporterId,
-      notes: [
-        {
-          content:   noteContent,
-          author:    reporterId,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        },
-      ],
+      notes: noteDocs,
       activityLogs: [
         {
           action:      "lead_created",
@@ -272,7 +317,7 @@ export const syncSheetLeadsBatch = async (
         continue;
       }
 
-      const noteContent = buildNote(row);
+      const noteDocs = buildNotes(row, reporterId);
 
       const lead = await Lead.create({
         name:     row.full_name.trim(),
@@ -284,14 +329,7 @@ export const syncSheetLeadsBatch = async (
         campaign: row.campaign_name?.trim() || undefined,
         status:   "new",
         reporter: reporterId,
-        notes: [
-          {
-            content:   noteContent,
-            author:    reporterId,
-            createdAt: new Date(),
-            updatedAt: new Date(),
-          },
-        ],
+        notes: noteDocs,
         activityLogs: [
           {
             action:      "lead_created",
